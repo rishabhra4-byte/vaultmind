@@ -2,11 +2,14 @@
 #
 #   cp .env.example .env
 #   echo "VAULTMIND_JWT_SECRET=$(openssl rand -hex 32)" >> .env
+#   echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
 #   docker compose up --build
 #
-# For a public demo with the nine demo accounts, set VAULTMIND_SEED_DEMO_DATA=true in .env.
-# For a real install, leave it false and create an administrator:
+# For a public demo with the nine demo accounts, add VAULTMIND_SEED_DEMO_DATA=true to .env.
+# For a real install, leave it out and create an administrator and people:
 #   docker compose exec app python -m app.cli create-admin --email you@company.com --name "Your Name"
+#   docker compose exec app python -m app.cli create-user --email ... --name ... --team ... --position senior
+# See "Deploying for real" in the README.
 
 services:
   app:
@@ -22,6 +25,9 @@ services:
       VAULTMIND_SEED_DEMO_DATA: ${VAULTMIND_SEED_DEMO_DATA:-false}
       VAULTMIND_ANTHROPIC_API_KEY: ${VAULTMIND_ANTHROPIC_API_KEY:-}
       VAULTMIND_HSTS: ${VAULTMIND_HSTS:-false}
+      # Behind a reverse proxy, set this to the proxy's address so uvicorn trusts its
+      # X-Forwarded-For header and sign-in limits see each person's real address.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1,::1}
     volumes:
       - files:/data
     depends_on:

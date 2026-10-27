@@ -254,6 +254,12 @@ async function signOut(page) {
       await p.waitForSelector('.msg-user:has-text("hotel limit")');
       await p.waitForSelector('.msg-assistant:has-text("7,000")', { timeout: 10000 });
     });
+    await check('assistant: a link with ?ask= does not send a question on the person\'s behalf', async () => {
+      await p.goto(BASE + '/?ask=' + encodeURIComponent('Planted question from a link'));
+      await p.waitForSelector('.chat');
+      await p.waitForTimeout(800);
+      return (await p.$('.msg-user:has-text("Planted question")')) === null;
+    });
     await check('palette: shows locked docs with a lock, and never restricted ones', async () => {
       await p.keyboard.press('Control+k');
       await p.fill('.palette-input input', 'board meeting acquisition falcon salary');
@@ -616,8 +622,7 @@ async function signOut(page) {
     ['admin', '/admin', 'Dev Patel'],
   ];
   const axeFindings = new Map();
-  // One session per person, reused across screen sizes (signing in 16 times would trip the
-  // login rate limit, which is working as intended).
+  // One session per person, reused across screen sizes, so the sweep stays fast.
   const tokens = {};
   const tokenFor = async (name) => {
     if (!tokens[name]) {

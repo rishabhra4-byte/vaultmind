@@ -77,6 +77,17 @@ Many "chat with your documents" apps put everything in the prompt and ask the mo
 
 A prompt-injection test checks this: an intern who claims to be the CEO and asks for the salary sheet gets a prompt that doesn't contain a single salary figure ([`tests/test_api.py`](backend/tests/test_api.py)).
 
+Search follows the same rule. Content matching only ever runs over documents the person can open; locked documents can be found by title alone, so searching for a phrase can't reveal what a locked file says.
+
+### Hardening
+
+- Strict security headers and content security policy (no inline scripts), JSON 404s for unknown API routes, and request size limits enforced before parsing.
+- Sign-in limits per account and per network address that count only failed attempts, the same answer and timing for unknown accounts, and input length limits.
+- Production refuses to start with a missing or weak signing secret, and demo data is off unless asked for.
+- Uploads: file names are sanitised, downloads are always served as attachments with a safe content type, and zip bombs, oversized PDFs and password-protected files get clear refusals.
+- Requests and approvals are safe under concurrency (a unique index and compare-and-set), and files are deleted from storage when the last document using them goes.
+- AI errors (bad key, no credit, rate limits, overload, timeouts) fall back to an offline answer that says why, and the API key never reaches the browser.
+
 ### Design decisions
 
 - **BM25 over embeddings.** It needs no model download or vector database, it's fast and explainable, and it's strong on the keyword-heavy queries people type when looking for a company file. It sits behind a small `add / remove / search` interface, so a hybrid or embedding retriever can replace it later.
@@ -85,16 +96,18 @@ A prompt-injection test checks this: an intern who claims to be the CEO and asks
 
 ## Tech stack
 
-**Backend:** Python 3.12, FastAPI, SQLAlchemy 2, PostgreSQL (SQLite for local runs), JWT auth with bcrypt, Anthropic API, pypdf
-**Frontend:** React 18, TypeScript, Vite, React Router, with no UI framework
-**Quality:** pytest (43 tests, run on SQLite and PostgreSQL in CI), a 224-check browser audit (Playwright + axe), Ruff, GitHub Actions, Docker
+**Backend:** Python 3.12, FastAPI, SQLAlchemy 2, Alembic, PostgreSQL (SQLite for local runs), JWT auth with bcrypt, Anthropic API, pypdf
+**Frontend:** React 18, TypeScript, Vite, React Router, with no UI framework, self-hosted fonts
+**Quality:** pytest (87 tests, on SQLite and PostgreSQL, plus 4 opt-in live Claude checks), a 274-check browser audit run in Chromium, Firefox and WebKit (Playwright + axe), an accessibility review, performance checks, Ruff, pip-audit and npm audit, and a CI job that tests the Docker image itself
 
 ## Run it
 
 ### Quickest: Docker
 
 ```bash
-cp .env.example .env            # optional: add VAULTMIND_ANTHROPIC_API_KEY
+cp .env.example .env                                         # optional: add VAULTMIND_ANTHROPIC_API_KEY
+echo "VAULTMIND_JWT_SECRET=$(openssl rand -hex 32)" >> .env  # required: the image runs in production mode
+echo "VAULTMIND_SEED_DEMO_DATA=true" >> .env                 # the demo company (never with real documents)
 docker compose up --build
 ```
 
@@ -115,28 +128,61 @@ npm install
 npm run dev
 ```
 
-The first start creates a SQLite database and loads the demo company. Interactive API docs are at http://localhost:8000/docs.
+The first start creates a SQLite database and loads the demo company. Interactive API docs are at http://localhost:8000/docs (development only; they are switched off in production).
+
+### Deploying for real
+
+The Docker image runs in production mode. On top of the Quickest steps:
+
+1. **Secrets.** `VAULTMIND_JWT_SECRET` must be at least 32 random characters, or the app refuses to start. Set your own `POSTGRES_PASSWORD` too, before the first start (PostgreSQL only reads it when it creates the database).
+2. **No demo data.** Leave `VAULTMIND_SEED_DEMO_DATA` out. The demo accounts share a public password and one of them is an admin.
+3. **People.** Create the first admin, then everyone else, with the operator commands (passwords are prompted for, at least 12 characters):
+   ```bash
+   docker compose exec app python -m app.cli create-admin --email you@company.com --name "Your Name"
+   docker compose exec app python -m app.cli create-user --email ravi@company.com --name "Ravi Kumar" \
+       --team Engineering --position senior --title "Backend Engineer"
+   docker compose exec app python -m app.cli set-password --email ravi@company.com
+   ```
+   Positions and active status can then be changed on the admin page. Deactivating someone cuts them off at once; a password change doesn't end sessions that are already signed in (they last 8 hours).
+4. **HTTPS.** Put it behind a reverse proxy that terminates TLS, then set `VAULTMIND_HSTS=true`. Publish the port only to the proxy (for example `127.0.0.1:8000:8000`), and set `FORWARDED_ALLOW_IPS` to the proxy's address so sign-in limits see each person's real address.
+5. **One app process.** The search index and the rate limits live in memory, so run one container with one worker (the image does). Scaling out needs a shared index and a Redis-backed limiter.
+6. **Backups.** Back up the database and the file volume together:
+   ```bash
+   docker compose exec -T db pg_dump -U vaultmind vaultmind > vaultmind.sql
+   docker compose cp app:/data/storage ./storage-backup
+   ```
+   Restore with `psql` into an empty database and copy the folder back, then restart. Database migrations run automatically on start, so upgrading is `git pull && docker compose up -d --build`; back up first.
+7. **AI.** With `VAULTMIND_ANTHROPIC_API_KEY` set, passages from documents the asking person may open are sent to Anthropic to write the answer. Make sure that fits your company's data policies. Without a key, answers are built offline and labelled as such.
+
+[`docs/production-readiness.md`](docs/production-readiness.md) has the full audit: what was tested, what was fixed, and what still needs checking before real use.
 
 ### Tests
 
 ```bash
 cd backend
-pytest                 # 43 tests: policy rules, scanner, search, API flows, leakage checks
-ruff check app tests
+pytest                 # 87 tests: policy rules, scanner, search, API flows, leakage, security, migrations, AI provider errors
+ruff check app tests alembic && ruff format --check app tests alembic
+VAULTMIND_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/vaultmind_test pytest   # same suite on PostgreSQL
 ```
 
 ### Browser audit
 
-[`e2e/audit.js`](e2e/audit.js) drives the real app in Chromium and checks **224 things**:
+[`e2e/audit.js`](e2e/audit.js) drives the real app and checks **274 things**. CI runs it in Chromium, Firefox and WebKit, and again against the production Docker container:
 
-- Every flow as six different people: sign-in (including wrong passwords and a corrupted session), the assistant, citations, copy, conversations, the command palette, library search and filters, upload (drag-and-drop, unsupported and empty files, duplicates, the sensitivity override), downloads, access settings, delete with confirmation, approving, denying, cancelling and revoking requests, and the admin tools.
+- Every flow as six different people: sign-in (including wrong passwords and a corrupted session), the assistant, citations, copy, Stop, conversations, the command palette, library search and filters, upload (drag-and-drop, unsupported and empty files, duplicates, the sensitivity override), downloads, access settings, delete with confirmation, approving, denying, cancelling and revoking requests, and the admin tools.
 - Failure handling: the API going offline, a failed chat message (the draft is kept), and rate limiting.
-- Every page at 360, 390, 768, 1024, 1280, 1440 and 1920 px, in light and dark: no horizontal overflow, readable headings, and touch targets of at least 24 px.
+- Security and polish: the content security policy, self-hosted fonts, no team list for signed-out visitors, a 404 page, and a title for every page.
+- Every page at 320, 360, 390, 768, 1024, 1280, 1440 and 1920 px, in light and dark: no horizontal overflow, readable headings, and touch targets of at least 24 px.
 - An [axe](https://github.com/dequelabs/axe-core) WCAG 2 A/AA scan of every page, plus a check for any console error or failed request.
 
+[`e2e/a11y-review.js`](e2e/a11y-review.js) covers what axe can't: keyboard-only use with a visible focus ring, focus trapping and return in dialogs, focus never hidden behind sticky parts, reduced motion, and text spacing, and saves accessibility-tree snapshots to read. [`e2e/perf.js`](e2e/perf.js) measures loading on a slow 3G connection and checks for memory leaks over 45 rounds of use.
+
 ```bash
-cd backend && rm -f vaultmind.db && uvicorn app.main:app      # fresh demo data, serving frontend/dist copied to backend/static
-cd e2e && npm install && npx playwright install chromium && npm run audit
+cd frontend && npm ci && npm run build && cp -r dist ../backend/static
+cd ../backend && rm -rf vaultmind.db storage && uvicorn app.main:app   # fresh demo data
+cd ../e2e && npm ci && npx playwright install chromium
+npm run audit            # BROWSER=firefox or BROWSER=webkit for the others
+npm run a11y && npm run perf
 ```
 
 ## Things to try
@@ -154,27 +200,37 @@ backend/
   app/
     policy.py        access rules: who can view, manage, approve (pure functions)
     assistant.py     permission-filtered retrieval + LLM / offline answers
-    search.py        BM25 index over document chunks
+    llm.py           Anthropic client, error classification, fallback reasons
+    search.py        BM25 indexes over document chunks and titles
     recommend.py     explainable, role-aware suggestions
     sensitivity.py   PII / secret scanner and redaction
     services.py      ingest pipeline: extract → scan → chunk → summarise → index
+    files.py         safe file names and download headers
     routers/         auth, documents, assistant, access requests, admin
+    cli.py           operator commands: create-admin, create-user, set-password
     seed.py          demo company
+  alembic/           database migrations (run automatically on start)
   tests/
 frontend/
-  src/pages/         Landing, Login, Assistant, Library, Document, Requests, Admin
+  src/pages/         Landing, Login, Assistant, Library, Document, Requests, Admin, NotFound
   src/components/    Shell, CommandPalette, RichText, icons, shared bits (avatars, tags, dialogs)
   src/theme.tsx      light / dark theme
 e2e/
-  audit.js           browser audit: flows, breakpoints, accessibility
+  audit.js           browser audit: flows, breakpoints, accessibility (Chromium, Firefox, WebKit)
+  a11y-review.js     keyboard, focus, motion and text-spacing checks, accessibility-tree snapshots
+  perf.js            slow-network loading and memory soak
+  docker-smoke.sh    smoke test for a running deployment
+docs/
+  production-readiness.md   audit report and checklist
 ```
 
 ## What I'd build next
 
+- SSO (Google Workspace / Okta), syncing people and teams from an HR system, and managing people in the admin page
+- Ending existing sessions when a password changes
+- A shared search index and a Redis-backed rate limiter, so it can run as several instances
 - Group and per-project permissions on top of teams
 - Hybrid retrieval (BM25 + embeddings) with re-ranking
-- Database migrations with Alembic, and a Redis-backed rate limiter for multiple instances
-- SSO (Google Workspace / Okta) and syncing teams from an HR system
 - Email or Slack notifications for access requests
 
 ## License

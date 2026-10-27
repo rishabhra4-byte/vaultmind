@@ -51,6 +51,12 @@ class RateLimiter:
         self._calls = 0
 
     def check(self, key: Hashable) -> None:
+        """Count this attempt, refusing it if the key is already at the limit."""
+        self.ensure_allowed(key)
+        self.record(key)
+
+    def ensure_allowed(self, key: Hashable) -> None:
+        """Refuse with 429 if the key is at the limit, without counting this attempt."""
         now = time.monotonic()
         self._calls += 1
         if self._calls % 1000 == 0:
@@ -65,7 +71,9 @@ class RateLimiter:
                 self.message.format(retry=retry),
                 headers={"Retry-After": str(retry)},
             )
-        hits.append(now)
+
+    def record(self, key: Hashable) -> None:
+        self._hits[key].append(time.monotonic())
 
     def _prune(self, now: float) -> None:
         """Forget keys with no hits inside the window, so memory doesn't grow with every new key."""
@@ -80,8 +88,9 @@ class RateLimiter:
 
 
 chat_limiter = RateLimiter(limit=20, window_seconds=60)
-# Per account and per network address, so neither one password-guesser nor one target
-# can be hammered. Counts every attempt within the window.
+# Per account and per network address, so neither one password-guesser nor one target can be
+# hammered. Only failed attempts count: a whole office signing in at 9am from one address
+# (or through one proxy) must not lock itself out.
 LOGIN_MESSAGE = "Too many sign-in attempts. Try again in {retry}s."
 login_limiter_account = RateLimiter(limit=10, window_seconds=300, message=LOGIN_MESSAGE)
 login_limiter_ip = RateLimiter(limit=50, window_seconds=300, message=LOGIN_MESSAGE)

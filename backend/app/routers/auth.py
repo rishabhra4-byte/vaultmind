@@ -15,12 +15,15 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 @router.post("/login", response_model=TokenOut)
 def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     email = body.email.strip().lower()
-    login_limiter_ip.check(request.client.host if request.client else "unknown")
-    login_limiter_account.check(email)
+    ip = request.client.host if request.client else "unknown"
+    login_limiter_ip.ensure_allowed(ip)
+    login_limiter_account.ensure_allowed(email)
     user = db.scalar(select(User).where(func.lower(User.email) == email))
     # Always run bcrypt, so the response time doesn't reveal whether the account exists.
     password_ok = verify_password(body.password, user.password_hash if user else DUMMY_HASH)
     if user is None or not password_ok:
+        login_limiter_ip.record(ip)
+        login_limiter_account.record(email)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email or password")
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This account is disabled")

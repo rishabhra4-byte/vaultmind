@@ -69,6 +69,22 @@ def test_login_is_rate_limited_per_account(client):
     assert r.status_code == 429 and "Retry-After" in r.headers
 
 
+def test_successful_sign_ins_do_not_use_up_the_limit(client):
+    # e.g. an office where everyone signs in from one address
+    for _ in range(55):  # more than both limits
+        assert client.post("/api/auth/login", json={"email": "neha@northwind.example", "password": "demo1234"}).status_code == 200
+
+
+def test_login_is_rate_limited_per_address(client):
+    codes = [
+        client.post("/api/auth/login", json={"email": f"guess{i}@northwind.example", "password": "x"}).status_code
+        for i in range(51)
+    ]
+    assert codes[:50] == [401] * 50 and codes[50] == 429
+    r = client.post("/api/auth/login", json={"email": "neha@northwind.example", "password": "demo1234"})
+    assert r.status_code == 429
+
+
 def test_login_gives_the_same_answer_for_unknown_accounts(client):
     unknown = client.post("/api/auth/login", json={"email": "nobody@northwind.example", "password": "x"})
     wrong = client.post("/api/auth/login", json={"email": "neha@northwind.example", "password": "x"})
@@ -339,6 +355,42 @@ def test_create_admin_cli_bootstraps_a_production_install(client, monkeypatch, c
 
     r = client.post("/api/auth/login", json={"email": "ops@acme.example", "password": "a-long-and-random-password"})
     assert r.status_code == 200 and r.json()["user"]["is_admin"] is True
+
+
+def test_cli_creates_employees_and_resets_passwords(client, monkeypatch, capsys):
+    from app.cli import main
+
+    monkeypatch.setenv("VAULTMIND_PASSWORD", "first-long-password")
+    args = ["create-user", "--email", "ravi@acme.example", "--name", "Ravi Kumar", "--team", "Platform"]
+    assert main([*args, "--position", "senior", "--title", "Backend Engineer"]) == 0
+    assert main([*args, "--position", "senior"]) == 1  # already exists
+    with pytest.raises(SystemExit):
+        main([*args, "--position", "wizard"])  # not a position
+    capsys.readouterr()
+
+    r = client.post("/api/auth/login", json={"email": "ravi@acme.example", "password": "first-long-password"})
+    me = r.json()["user"]
+    assert r.status_code == 200 and me["position_label"] == "Senior" and me["team_name"] == "Platform"
+    assert me["title"] == "Backend Engineer" and me["is_admin"] is False
+
+    monkeypatch.setenv("VAULTMIND_PASSWORD", "second-long-password")
+    assert main(["set-password", "--email", "RAVI@acme.example"]) == 0
+    assert main(["set-password", "--email", "nobody@acme.example"]) == 1
+    old = client.post("/api/auth/login", json={"email": "ravi@acme.example", "password": "first-long-password"})
+    new = client.post("/api/auth/login", json={"email": "ravi@acme.example", "password": "second-long-password"})
+    assert old.status_code == 401 and new.status_code == 200
+
+
+def test_deactivating_someone_ends_their_signed_in_session(client, login):
+    neha = login("neha")
+    assert client.get("/api/documents", headers=neha).status_code == 200
+    users = client.get("/api/admin/users", headers=login("dev")).json()
+    neha_id = next(u["id"] for u in users if u["email"] == "neha@northwind.example")
+    r = client.patch(f"/api/admin/users/{neha_id}", headers=login("dev"), json={"is_active": False})
+    assert r.status_code == 200
+    assert client.get("/api/documents", headers=neha).status_code == 401  # the same token, refused at once
+    again = client.post("/api/auth/login", json={"email": "neha@northwind.example", "password": "demo1234"})
+    assert again.status_code == 403
 
 
 def test_rate_limiter_forgets_idle_keys():
