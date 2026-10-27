@@ -661,52 +661,58 @@ async function signOut(page) {
       ctx.setDefaultTimeout(20000);
       const p = await ctx.newPage();
       watch(p, `${theme}@${w}`);
-      for (const [name, path, user] of pages) {
-        const token = user ? await tokenFor(user) : null;
-        await p.goto(BASE + '/robots.txt'); // same origin, so the token can be set before the app loads
-        await p.evaluate((t) => (t ? localStorage.setItem('vaultmind.token', t) : localStorage.removeItem('vaultmind.token')), token);
-        await p.goto(BASE + path);
-        await p.waitForLoadState('networkidle');
-        await p.waitForTimeout(name === 'admin' ? 900 : 300);
-        const r = await p.evaluate(() => {
-          const vw = document.documentElement.clientWidth;
-          const over = [];
-          for (const el of document.querySelectorAll('body *')) {
-            const cs = getComputedStyle(el);
-            if (cs.display === 'none' || cs.visibility === 'hidden' || el.closest('dialog:not([open])')) continue;
-            const b = el.getBoundingClientRect();
-            if (b.width === 0 || b.height === 0) continue;
-            // ignore content inside horizontally scrollable containers (e.g. the people table)
-            let p = el.parentElement, scroller = false;
-            while (p) { const o = getComputedStyle(p).overflowX; if (o === 'auto' || o === 'scroll') { scroller = true; break; } p = p.parentElement; }
-            if (!scroller && b.right > vw + 1) over.push(`${el.tagName.toLowerCase()}.${[...el.classList].join('.')} right=${Math.round(b.right)}`);
-          }
-          const h1 = document.querySelector('h1');
-          return {
-            scroll: document.documentElement.scrollWidth - vw,
-            over: over.slice(0, 4),
-            h1: h1 ? parseFloat(getComputedStyle(h1).fontSize) : 0,
-            tiny: [...document.querySelectorAll('button, a, input, select')].filter((e) => {
-              const b = e.getBoundingClientRect();
-              return b.width > 0 && b.height > 0 && b.height < 24 && !e.classList.contains('cite') && !e.closest('.sources, .tags, .doc-meta, p, .plain, .site-foot, .audit, .who');
-            }).length,
-          };
-        });
+      for (const [i, [name, path, user]] of pages.entries()) {
         const tag = `${name} @${w} ${theme}`;
-        ok(`layout: no horizontal overflow, ${tag}`, r.scroll <= 0 && r.over.length === 0, `${r.scroll}px ${r.over.join(', ')}`);
-        if (w <= 390) ok(`layout: heading fits phone, ${tag}`, r.h1 <= 40, `h1 ${r.h1}px`);
-        if (w <= 390) ok(`layout: touch targets ≥24px, ${tag}`, r.tiny === 0, `${r.tiny} small targets`);
-        if (w === 768 || (w === 390 && theme === 'dark')) await p.screenshot({ path: `${SHOTS}${name}-${w}-${theme}.png` });
-        if ((w === 1440 || w === 390) && (IS_CHROMIUM || theme === 'light')) {
-          await p.addScriptTag({ content: AXE });
-          const res = await p.evaluate(async () => {
-            const r = await window.axe.run(document, { runOnly: ['wcag2a', 'wcag2aa'] });
-            return r.violations.map((v) => ({ id: v.id, impact: v.impact, n: v.nodes.length, sample: v.nodes[0]?.target?.join(' ') + ' :: ' + (v.nodes[0]?.failureSummary || '').slice(0, 160) }));
+        try {
+          const token = user ? await tokenFor(user) : null;
+          // A new context starts signed out, which the first page (the landing page) needs. After
+          // that the page is on the app's origin, so the next person's session is set right here
+          // before navigating.
+          if (i > 0) await p.evaluate((t) => (t ? localStorage.setItem('vaultmind.token', t) : localStorage.removeItem('vaultmind.token')), token);
+          await p.goto(BASE + path);
+          await p.waitForLoadState('networkidle');
+          await p.waitForTimeout(name === 'admin' ? 900 : 300);
+          const r = await p.evaluate(() => {
+            const vw = document.documentElement.clientWidth;
+            const over = [];
+            for (const el of document.querySelectorAll('body *')) {
+              const cs = getComputedStyle(el);
+              if (cs.display === 'none' || cs.visibility === 'hidden' || el.closest('dialog:not([open])')) continue;
+              const b = el.getBoundingClientRect();
+              if (b.width === 0 || b.height === 0) continue;
+              // ignore content inside horizontally scrollable containers (e.g. the people table)
+              let p = el.parentElement, scroller = false;
+              while (p) { const o = getComputedStyle(p).overflowX; if (o === 'auto' || o === 'scroll') { scroller = true; break; } p = p.parentElement; }
+              if (!scroller && b.right > vw + 1) over.push(`${el.tagName.toLowerCase()}.${[...el.classList].join('.')} right=${Math.round(b.right)}`);
+            }
+            const h1 = document.querySelector('h1');
+            return {
+              scroll: document.documentElement.scrollWidth - vw,
+              over: over.slice(0, 4),
+              h1: h1 ? parseFloat(getComputedStyle(h1).fontSize) : 0,
+              tiny: [...document.querySelectorAll('button, a, input, select')].filter((e) => {
+                const b = e.getBoundingClientRect();
+                return b.width > 0 && b.height > 0 && b.height < 24 && !e.classList.contains('cite') && !e.closest('.sources, .tags, .doc-meta, p, .plain, .site-foot, .audit, .who');
+              }).length,
+            };
           });
-          for (const v of res) {
-            const k = `${v.id} on ${name} (${theme})`;
-            if (!axeFindings.has(k)) axeFindings.set(k, v);
+          ok(`layout: no horizontal overflow, ${tag}`, r.scroll <= 0 && r.over.length === 0, `${r.scroll}px ${r.over.join(', ')}`);
+          if (w <= 390) ok(`layout: heading fits phone, ${tag}`, r.h1 <= 40, `h1 ${r.h1}px`);
+          if (w <= 390) ok(`layout: touch targets ≥24px, ${tag}`, r.tiny === 0, `${r.tiny} small targets`);
+          if (w === 768 || (w === 390 && theme === 'dark')) await p.screenshot({ path: `${SHOTS}${name}-${w}-${theme}.png` });
+          if ((w === 1440 || w === 390) && (IS_CHROMIUM || theme === 'light')) {
+            await p.addScriptTag({ content: AXE });
+            const res = await p.evaluate(async () => {
+              const r = await window.axe.run(document, { runOnly: ['wcag2a', 'wcag2aa'] });
+              return r.violations.map((v) => ({ id: v.id, impact: v.impact, n: v.nodes.length, sample: v.nodes[0]?.target?.join(' ') + ' :: ' + (v.nodes[0]?.failureSummary || '').slice(0, 160) }));
+            });
+            for (const v of res) {
+              const k = `${v.id} on ${name} (${theme})`;
+              if (!axeFindings.has(k)) axeFindings.set(k, v);
+            }
           }
+        } catch (e) {
+          ok(`sweep: ${tag} loaded and was measured`, false, e.message.split('\n').slice(0, 3).join(' ').slice(0, 300));
         }
       }
       await ctx.close();
