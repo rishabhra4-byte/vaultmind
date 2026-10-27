@@ -18,6 +18,7 @@ from ..models import (
     RequestStatus,
     Team,
     User,
+    utcnow,
 )
 from ..policy import can_manage, can_view, is_discoverable_to
 from ..recommend import recommend
@@ -296,6 +297,7 @@ def update_document(doc_id: int, body: DocumentUpdate, user: User = Depends(curr
         doc.discoverable = changes["discoverable"]
     if doc.classification == Classification.RESTRICTED:
         doc.discoverable = False
+    doc.updated_at = utcnow()  # sharing lives in another table, so bump this explicitly
     if "share_team_ids" in changes:
         wanted = {t for t in changes["share_team_ids"] if t != doc.owner_team_id}
         doc.shares = [s for s in doc.shares if s.team_id in wanted]

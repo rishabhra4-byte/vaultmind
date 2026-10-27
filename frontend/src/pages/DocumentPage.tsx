@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, download } from "../api";
-import { ClassTag, Empty, RequestAccessDialog, timeAgo } from "../components/bits";
+import { Avatar, ClassTag, Empty, Modal, RequestAccessDialog, Skeleton, TeamChip, teamColor, timeAgo } from "../components/bits";
+import { IconDownload, IconFile, IconLock, IconShield, IconSparkle, IconTrash } from "../components/icons";
 import { RichText } from "../components/RichText";
 import { useApp } from "../state";
 import type { Classification, DocDetail, User } from "../types";
@@ -24,8 +25,19 @@ export default function DocumentPage() {
   const [missing, setMissing] = useState(false);
   const [requesting, setRequesting] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    setDoc(null); // don't show the previous document while the next one loads
+    setEditing(false);
+  }, [id]);
 
   const load = useCallback(() => {
+    setMissing(false);
+    setVersion((v) => v + 1);
     api<DocDetail>(`/api/documents/${id}`)
       .then(setDoc)
       .catch(() => setMissing(true));
@@ -35,36 +47,60 @@ export default function DocumentPage() {
   if (missing)
     return (
       <div className="page">
-        <Empty title="This document doesn't exist, or you don't have permission to know about it.">
+        <Empty title="This document doesn't exist, or you don't have permission to know about it." icon={<IconLock />}>
           <Link to="/library">Back to the library</Link>
         </Empty>
       </div>
     );
-  if (!doc) return <div className="page muted">Loading…</div>;
+  if (!doc)
+    return (
+      <div className="page">
+        <Skeleton rows={3} />
+      </div>
+    );
 
   const { access } = doc;
 
   async function remove() {
-    if (!doc || !window.confirm(`Delete “${doc.title}”? This can't be undone.`)) return;
-    await api(`/api/documents/${doc.id}`, { method: "DELETE" });
-    notify("Document deleted");
-    navigate("/library");
+    if (!doc) return;
+    try {
+      await api(`/api/documents/${doc.id}`, { method: "DELETE" });
+      notify(`Deleted “${doc.title}”`);
+      navigate("/library");
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : "Couldn't delete the document", "error");
+    }
+  }
+
+  async function onDownload() {
+    if (!doc) return;
+    setDownloading(true);
+    try {
+      await download(doc.id, doc.filename);
+    } catch {
+      notify("Download failed. Try again.", "error");
+    } finally {
+      setDownloading(false);
+    }
   }
 
   return (
-    <div className="page doc-page">
+    <div className={`page doc-page class-edge-${doc.classification}`}>
       <Link to="/library" className="back">
         Library
       </Link>
-      <header className={`doc-head class-edge-${doc.classification}`}>
-        <h1>{doc.title}</h1>
-        <div className="doc-meta">
-          <ClassTag value={doc.classification} />
-          <span>{doc.owner_team}</span>
-          {doc.min_position > 1 && <span>{doc.min_position_label} and above</span>}
-          {doc.shared_with.length > 0 && <span>Shared with {doc.shared_with.join(", ")}</span>}
-          <span>Updated {timeAgo(doc.updated_at)}</span>
-          {doc.uploaded_by && <span>Uploaded by {doc.uploaded_by}</span>}
+      <header className="doc-hero">
+        <span className="doc-icon">{access.allowed ? <IconFile /> : <IconLock />}</span>
+        <div>
+          <h1>{doc.title}</h1>
+          <div className="doc-meta">
+            <ClassTag value={doc.classification} />
+            <TeamChip team={doc.owner_team} />
+            {doc.min_position > 1 && <span>{doc.min_position_label} and above</span>}
+            {doc.shared_with.length > 0 && <span>Shared with {doc.shared_with.join(", ")}</span>}
+            <span>Updated {timeAgo(doc.updated_at)}</span>
+            {doc.uploaded_by && <span>Uploaded by {doc.uploaded_by}</span>}
+          </div>
         </div>
       </header>
 
@@ -78,13 +114,18 @@ export default function DocumentPage() {
               </div>
             </>
           ) : (
-            <div className={`sealed sealed-lg class-edge-${doc.classification}`}>
-              <div>
-                <div className="sealed-title">You can't open this document</div>
-                <div className="sealed-reason">{access.reason}</div>
+            <div className="sealed sealed-lg">
+              <div className="sealed-main">
+                <span className="doc-icon">
+                  <IconLock />
+                </span>
+                <div>
+                  <div className="sealed-title">You can't open this document yet</div>
+                  <div className="sealed-reason">{access.reason}</div>
+                </div>
               </div>
               {access.request_pending ? (
-                <span className="pill">Request pending</span>
+                <span className="pill pending">Request pending. You'll get access once it's approved.</span>
               ) : (
                 doc.classification !== "restricted" && (
                   <button className="btn primary" onClick={() => setRequesting(true)}>
@@ -98,27 +139,34 @@ export default function DocumentPage() {
 
         <aside className="doc-aside">
           <section>
-            <h2>Your access</h2>
-            <p className={access.allowed ? "ok" : "error"}>{access.allowed ? "You can open this." : "No access."}</p>
-            <p className="muted">{access.reason}</p>
+            <div className={`access-badge ${access.allowed ? "" : "no"}`}>
+              <span className="dot">{access.allowed ? <IconShield width={16} height={16} /> : <IconLock width={16} height={16} />}</span>
+              {access.allowed ? "You can open this" : "No access"}
+            </div>
+            <p className="muted small">{access.reason}</p>
             {access.allowed && (
-              <button
-                className="btn block"
-                onClick={() => download(doc.id, doc.filename).catch(() => notify("Download failed", "error"))}
-              >
-                Download {doc.filename.split(".").pop()?.toUpperCase()}
-              </button>
+              <div className="stack-sm">
+                <button className="btn block" onClick={onDownload} disabled={downloading}>
+                  <IconDownload /> {downloading ? "Downloading…" : `Download ${doc.filename.split(".").pop()?.toUpperCase()}`}
+                </button>
+                <button
+                  className="btn block"
+                  onClick={() => navigate(`/?ask=${encodeURIComponent(`What are the key points of “${doc.title}”?`)}`)}
+                >
+                  <IconSparkle /> Ask the assistant about this
+                </button>
+              </div>
             )}
           </section>
 
           {doc.tags.length > 0 && (
             <section>
-              <h2>Tags</h2>
+              <h3>Tags</h3>
               <div className="tags">
                 {doc.tags.map((t) => (
-                  <span key={t} className="tag">
+                  <Link key={t} to={`/library?q=${encodeURIComponent(t)}`} className="tag">
                     {t}
-                  </span>
+                  </Link>
                 ))}
               </div>
             </section>
@@ -126,24 +174,24 @@ export default function DocumentPage() {
 
           {doc.sensitivity_flags.length > 0 && access.allowed && (
             <section>
-              <h2>Sensitive content found</h2>
-              <p className="muted">{doc.sensitivity_flags.map((f) => f.replace(/_/g, " ")).join(", ")}</p>
+              <h3>Sensitive content found</h3>
+              <p className="muted small">{doc.sensitivity_flags.map((f) => f.replace(/_/g, " ")).join(", ")}</p>
             </section>
           )}
 
           {access.can_manage && (
             <section>
-              <h2>Manage</h2>
+              <h3>Manage</h3>
               <div className="stack-sm">
-                <button className="btn block" onClick={() => setEditing((e) => !e)}>
-                  {editing ? "Close settings" : "Change access settings"}
+                <button className="btn block" onClick={() => setEditing((e) => !e)} aria-expanded={editing}>
+                  {editing ? "Close access settings" : "Change access settings"}
                 </button>
-                <button className="btn block ghost danger-text" onClick={remove}>
-                  Delete document
+                <button className="btn block ghost danger-text" onClick={() => setConfirmDelete(true)}>
+                  <IconTrash /> Delete document
                 </button>
               </div>
               {editing && <AccessSettings doc={doc} onSaved={load} />}
-              <WhoCanAccess docId={doc.id} key={doc.updated_at} />
+              <WhoCanAccess docId={doc.id} key={`${doc.id}-${version}`} />
             </section>
           )}
         </aside>
@@ -155,6 +203,23 @@ export default function DocumentPage() {
           onClose={() => setRequesting(false)}
           onDone={load}
         />
+      )}
+      {confirmDelete && (
+        <Modal title="Delete this document?" onClose={() => setConfirmDelete(false)}>
+          <div className="stack">
+            <p className="muted">
+              “{doc.title}” will be removed for everyone, including people with temporary access. This can't be undone.
+            </p>
+            <div className="row end">
+              <button className="btn ghost" onClick={() => setConfirmDelete(false)}>
+                Keep it
+              </button>
+              <button className="btn danger" onClick={remove}>
+                Delete document
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
@@ -213,7 +278,7 @@ function AccessSettings({ doc, onSaved }: { doc: DocDetail; onSaved: () => void 
           {meta?.teams
             .filter((t) => t.id !== doc.owner_team_id)
             .map((t) => (
-              <label key={t.id} className="check">
+              <label key={t.id} className="check-chip" style={{ "--tc": teamColor(t.name) } as CSSProperties}>
                 <input
                   type="checkbox"
                   checked={shares.includes(t.id)}
@@ -245,10 +310,10 @@ function WhoCanAccess({ docId }: { docId: number }) {
       <ul>
         {people.map(({ user, via }) => (
           <li key={user.id}>
+            <Avatar name={user.full_name} team={user.team_name} size={28} />
             <span>
-              {user.full_name}
-              <span className="muted">
-                {" "}
+              <strong>{user.full_name}</strong>
+              <span className="muted small">
                 {user.position_label}, {user.team_name}
               </span>
             </span>

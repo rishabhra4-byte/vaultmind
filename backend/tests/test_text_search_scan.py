@@ -1,7 +1,7 @@
 from app.models import Classification as C
 from app.search import BM25Index
 from app.sensitivity import redact, scan
-from app.text import chunk_text, stem, tokenize
+from app.text import best_snippet, chunk_text, stem, tokenize
 
 
 def test_tokenize_and_stem():
@@ -72,3 +72,13 @@ def test_level_names_like_sde_2_match_exactly():
     idx = BM25Index()
     idx.add_document(1, "Bands", [], [(1, "SDE-1: 14 to 22."), (2, "SDE-2: 22 to 34.")])
     assert idx.search("SDE-2 band", chunks_per_doc=1)[0].chunks[0].chunk_id == 2
+
+
+def test_snippet_prefers_the_sentence_with_the_rarest_matching_words():
+    text = (
+        "Travel: book flights and hotels through the company travel desk. "
+        "Economy class for flights under six hours. "
+        "Hotel limit is INR 7,000 per night in metro cities. "
+        "Meals while travelling are reimbursed."
+    )
+    assert best_snippet(text, "what is the hotel limit for travel").startswith("Hotel limit is INR 7,000")

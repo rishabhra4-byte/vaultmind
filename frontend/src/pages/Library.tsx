@@ -1,34 +1,71 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api";
-import { ClassTag, Empty, Modal, RequestAccessDialog, timeAgo } from "../components/bits";
+import { ClassTag, Empty, Highlight, Modal, RequestAccessDialog, Skeleton, TeamChip, teamColor, timeAgo } from "../components/bits";
+import { IconFile, IconLock, IconSearch, IconUpload } from "../components/icons";
 import { useApp } from "../state";
 import type { Classification, Doc, ScanFinding } from "../types";
 
+const CLASS_COLOR: Record<Classification, string> = {
+  public: "var(--c-public)",
+  internal: "var(--c-internal)",
+  confidential: "var(--c-confidential)",
+  restricted: "var(--c-restricted)",
+};
+
 export default function Library() {
   const { meta } = useApp();
+  const [params, setParams] = useSearchParams();
   const [docs, setDocs] = useState<Doc[] | null>(null);
-  const [q, setQ] = useState("");
+  const [failed, setFailed] = useState(false);
+  const [q, setQ] = useState(params.get("q") ?? "");
   const [team, setTeam] = useState("");
-  const [cls, setCls] = useState("");
+  const [cls, setCls] = useState<Classification | "">("");
   const [showLocked, setShowLocked] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [requesting, setRequesting] = useState<Doc | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
+  // Filters other than classification are applied by the server; classification is
+  // filtered here so the chips can show counts for every level at once.
   const load = useCallback(() => {
     const p = new URLSearchParams({ include_locked: String(showLocked) });
     if (q.trim()) p.set("q", q.trim());
     if (team) p.set("team_id", team);
-    if (cls) p.set("classification", cls);
-    api<Doc[]>(`/api/documents?${p}`).then(setDocs).catch(() => setDocs([]));
-  }, [q, team, cls, showLocked]);
+    setFailed(false);
+    api<Doc[]>(`/api/documents?${p}`)
+      .then(setDocs)
+      .catch(() => {
+        setDocs([]);
+        setFailed(true);
+      });
+  }, [q, team, showLocked]);
 
   useEffect(() => {
-    const t = setTimeout(load, q ? 250 : 0);
+    const t = setTimeout(load, q ? 220 : 0);
     return () => clearTimeout(t);
   }, [load, q]);
 
-  const openable = docs?.filter((d) => d.access.allowed).length ?? 0;
+  useEffect(() => {
+    setParams(q.trim() ? { q: q.trim() } : {}, { replace: true });
+  }, [q, setParams]);
+
+  // "/" focuses search, like most document tools
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const typing = (e.target as HTMLElement)?.closest("input, textarea, select, [contenteditable]");
+      if (e.key === "/" && !typing && !document.querySelector("dialog[open]")) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const visible = docs?.filter((d) => !cls || d.classification === cls) ?? null;
+  const count = (c: Classification) => docs?.filter((d) => d.classification === c).length ?? 0;
+  const openable = visible?.filter((d) => d.access.allowed).length ?? 0;
 
   return (
     <div className="page">
@@ -36,23 +73,30 @@ export default function Library() {
         <div>
           <h1>Library</h1>
           <p className="muted">
-            {docs ? `${openable} you can open${showLocked ? `, ${docs.length - openable} you can request` : ""}` : "Loading…"}
+            {visible
+              ? `${openable} you can open${showLocked ? `, ${visible.length - openable} you can request` : ""}`
+              : "Loading documents…"}
           </p>
         </div>
         <button className="btn primary" onClick={() => setUploading(true)}>
-          Upload a document
+          <IconUpload /> Upload a document
         </button>
       </header>
 
       <div className="filters">
-        <input
-          type="search"
-          placeholder="Search titles and contents"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          aria-label="Search documents"
-        />
-        <select value={team} onChange={(e) => setTeam(e.target.value)} aria-label="Team">
+        <label className="search-box">
+          <IconSearch />
+          <input
+            ref={searchRef}
+            type="search"
+            placeholder="Search titles and contents"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            aria-label="Search documents"
+          />
+          {!q && <span className="kbd" aria-hidden>/</span>}
+        </label>
+        <select value={team} onChange={(e) => setTeam(e.target.value)} aria-label="Filter by team">
           <option value="">All teams</option>
           {meta?.teams.map((t) => (
             <option key={t.id} value={t.id}>
@@ -60,46 +104,93 @@ export default function Library() {
             </option>
           ))}
         </select>
-        <select value={cls} onChange={(e) => setCls(e.target.value)} aria-label="Classification">
-          <option value="">Any classification</option>
-          {meta?.classifications.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+      </div>
+
+      <div className="chip-row" role="group" aria-label="Filter by classification">
+        <button className="chip all" aria-pressed={cls === ""} onClick={() => setCls("")}>
+          All <span className="chip-count">{docs?.length ?? ""}</span>
+        </button>
+        {(meta?.classifications ?? []).filter((c) => count(c.value) > 0 || cls === c.value).map((c) => (
+          <button
+            key={c.value}
+            className="chip"
+            aria-pressed={cls === c.value}
+            onClick={() => setCls(cls === c.value ? "" : c.value)}
+            style={{ "--chip": CLASS_COLOR[c.value] } as CSSProperties}
+            title={c.help}
+          >
+            {c.label} <span className="chip-count">{count(c.value)}</span>
+          </button>
+        ))}
         <label className="check">
-          <input type="checkbox" checked={showLocked} onChange={(e) => setShowLocked(e.target.checked)} />
+          <span className="switch">
+            <input type="checkbox" checked={showLocked} onChange={(e) => setShowLocked(e.target.checked)} />
+            <span />
+          </span>
           Show documents I can request
         </label>
       </div>
 
-      {docs && docs.length === 0 && (
-        <Empty title={q ? `Nothing matches “${q}”` : "No documents here yet"}>
-          {q ? "Try fewer words, or clear the filters." : "Upload the first one for your team."}
+      {visible === null && <Skeleton rows={5} />}
+
+      {failed && (
+        <Empty title="The library didn't load." icon={<IconFile />}>
+          Check your connection, then{" "}
+          <button className="link-btn" onClick={load}>
+            <u>try again</u>
+          </button>
+          .
+        </Empty>
+      )}
+
+      {!failed && visible && visible.length === 0 && (
+        <Empty title={q ? `Nothing matches “${q}”` : "No documents here yet"} icon={<IconSearch />}>
+          {q || cls || team ? (
+            <>
+              Try fewer words, or{" "}
+              <button
+                className="link-btn"
+                onClick={() => {
+                  setQ("");
+                  setCls("");
+                  setTeam("");
+                }}
+              >
+                <u>clear the filters</u>
+              </button>
+              .
+            </>
+          ) : (
+            "Upload the first one for your team."
+          )}
         </Empty>
       )}
 
       <ul className="doc-list">
-        {docs?.map((d) => (
-          <li key={d.id} className={`doc-row class-edge-${d.classification} ${d.access.allowed ? "" : "locked"}`}>
+        {visible?.map((d, i) => (
+          <li
+            key={d.id}
+            className={`doc-row class-edge-${d.classification} ${d.access.allowed ? "" : "locked"}`}
+            style={{ "--i": Math.min(i, 12) } as CSSProperties}
+          >
+            <span className="doc-icon">{d.access.allowed ? <IconFile /> : <IconLock />}</span>
             <div className="doc-main">
               <Link to={`/library/${d.id}`} className="doc-title">
-                {d.title}
+                <Highlight text={d.title} query={q} />
               </Link>
               <div className="doc-meta">
                 <ClassTag value={d.classification} />
-                <span>{d.owner_team}</span>
-                {d.min_position > 1 && <span>{d.min_position_label}+</span>}
+                <TeamChip team={d.owner_team} />
+                {d.min_position > 1 && <span>{d.min_position_label} and above</span>}
                 <span>Updated {timeAgo(d.updated_at)}</span>
               </div>
               <p className="doc-summary">{d.access.allowed ? d.summary : d.access.reason}</p>
             </div>
             <div className="doc-side">
               {d.access.allowed ? (
-                d.access.code === "grant" && <span className="pill">Temporary access</span>
+                d.access.code === "grant" && <span className="pill grant">Temporary access</span>
               ) : d.access.request_pending ? (
-                <span className="pill">Request pending</span>
+                <span className="pill pending">Request pending</span>
               ) : (
                 <button className="btn small" onClick={() => setRequesting(d)}>
                   Request access
@@ -137,9 +228,13 @@ interface Scan {
   tags: string[];
 }
 
+const ACCEPT = ".txt,.md,.pdf,.docx,.csv,.json";
+const MAX_MB = 20;
+
 function UploadDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const { meta, user, notify } = useApp();
   const [file, setFile] = useState<File | null>(null);
+  const [over, setOver] = useState(false);
   const [scan, setScan] = useState<Scan | null>(null);
   const [scanning, setScanning] = useState(false);
   const [title, setTitle] = useState("");
@@ -150,13 +245,23 @@ function UploadDialog({ onClose, onDone }: { onClose: () => void; onDone: () => 
   const [warning, setWarning] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   async function pick(f: File | null) {
-    setFile(f);
     setScan(null);
     setWarning("");
     setError("");
-    if (!f) return;
+    if (!f) return setFile(null);
+    const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
+    if (!ACCEPT.split(",").includes(ext)) {
+      setFile(null);
+      return setError(`“${f.name}” isn't a supported file. Use ${ACCEPT.replaceAll(",", ", ")}.`);
+    }
+    if (f.size > MAX_MB * 1024 * 1024) {
+      setFile(null);
+      return setError(`That file is ${(f.size / 1048576).toFixed(1)} MB. The limit is ${MAX_MB} MB.`);
+    }
+    setFile(f);
     setTitle(f.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " "));
     setScanning(true);
     const body = new FormData();
@@ -172,13 +277,20 @@ function UploadDialog({ onClose, onDone }: { onClose: () => void; onDone: () => 
     }
   }
 
+  function onDrop(e: DragEvent) {
+    e.preventDefault();
+    setOver(false);
+    pick(e.dataTransfer.files?.[0] ?? null);
+  }
+
   async function submit(acknowledge: boolean) {
-    if (!file) return;
+    if (!file) return setError("Choose a file first.");
+    if (!title.trim()) return setError("Give the document a title.");
     setBusy(true);
     setError("");
     const body = new FormData();
     body.append("file", file);
-    body.append("title", title);
+    body.append("title", title.trim());
     body.append("classification", cls);
     if (minPos) body.append("min_position", minPos);
     body.append("discoverable", String(discoverable));
@@ -187,16 +299,18 @@ function UploadDialog({ onClose, onDone }: { onClose: () => void; onDone: () => 
     if (scan?.tags.length) body.append("tags", scan.tags.join(","));
     try {
       await api("/api/documents", { method: "POST", body });
-      notify(`Uploaded “${title}”`);
+      notify(`Uploaded “${title.trim()}”`);
       onDone();
     } catch (err) {
       const detail = err instanceof ApiError ? (err.detail as { suggested_classification?: string }) : null;
       if (err instanceof ApiError && err.status === 409 && detail?.suggested_classification) setWarning(err.message);
-      else setError(err instanceof ApiError ? err.message : "Upload failed");
+      else setError(err instanceof ApiError ? err.message : "Upload failed. Check your connection and try again.");
     } finally {
       setBusy(false);
     }
   }
+
+  const help = meta?.classifications.find((c) => c.value === cls)?.help;
 
   return (
     <Modal title="Upload a document" onClose={onClose}>
@@ -206,11 +320,38 @@ function UploadDialog({ onClose, onDone }: { onClose: () => void; onDone: () => 
           e.preventDefault();
           submit(false);
         }}
+        noValidate
       >
-        <label className="field">
-          <span>File (txt, md, pdf, docx, csv)</span>
-          <input type="file" accept=".txt,.md,.pdf,.docx,.csv,.json" onChange={(e) => pick(e.target.files?.[0] ?? null)} required />
-        </label>
+        <div
+          className={`dropzone ${over ? "over" : ""}`}
+          role="button"
+          tabIndex={0}
+          aria-label="Choose a file to upload"
+          onClick={() => inputRef.current?.click()}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), inputRef.current?.click())}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setOver(true);
+          }}
+          onDragLeave={() => setOver(false)}
+          onDrop={onDrop}
+        >
+          <span className="dz-icon">
+            <IconUpload />
+          </span>
+          {file ? (
+            <>
+              <strong>{file.name}</strong>
+              <span className="muted small">{(file.size / 1024).toFixed(1)} KB. Click to choose a different file.</span>
+            </>
+          ) : (
+            <>
+              <strong>Drop a file here, or click to browse</strong>
+              <span className="muted small">TXT, MD, PDF, DOCX, CSV or JSON, up to {MAX_MB} MB</span>
+            </>
+          )}
+          <input ref={inputRef} type="file" accept={ACCEPT} onChange={(e) => pick(e.target.files?.[0] ?? null)} />
+        </div>
 
         {scanning && <p className="muted">Checking the file for sensitive information…</p>}
         {scan && (
@@ -218,12 +359,10 @@ function UploadDialog({ onClose, onDone }: { onClose: () => void; onDone: () => 
             {scan.findings.length === 0 ? (
               <p>No personal data or secrets found.</p>
             ) : (
-              <>
-                <p>
-                  Found {scan.findings.map((f) => `${f.label.toLowerCase()} (${f.count})`).join(", ")}. Suggested
-                  classification: <strong>{scan.suggested_classification}</strong>.
-                </p>
-              </>
+              <p>
+                Found {scan.findings.map((f) => `${f.label.toLowerCase()} (${f.count})`).join(", ")}. Suggested
+                classification: <strong>{scan.suggested_classification}</strong>.
+              </p>
             )}
             {scan.summary && <p className="scan-summary">{scan.summary}</p>}
           </div>
@@ -244,7 +383,7 @@ function UploadDialog({ onClose, onDone }: { onClose: () => void; onDone: () => 
                 </option>
               ))}
             </select>
-            <small className="muted">{meta?.classifications.find((c) => c.value === cls)?.help}</small>
+            <small className="muted">{help}</small>
           </label>
           <label className="field">
             <span>Minimum position</span>
@@ -266,7 +405,7 @@ function UploadDialog({ onClose, onDone }: { onClose: () => void; onDone: () => 
               {meta?.teams
                 .filter((t) => t.id !== user?.team_id)
                 .map((t) => (
-                  <label key={t.id} className="check">
+                  <label key={t.id} className="check-chip" style={{ "--tc": teamColor(t.name) } as CSSProperties}>
                     <input
                       type="checkbox"
                       checked={shares.includes(t.id)}
@@ -280,20 +419,27 @@ function UploadDialog({ onClose, onDone }: { onClose: () => void; onDone: () => 
         )}
         {cls !== "restricted" && (
           <label className="check">
-            <input type="checkbox" checked={discoverable} onChange={(e) => setDiscoverable(e.target.checked)} />
+            <span className="switch">
+              <input type="checkbox" checked={discoverable} onChange={(e) => setDiscoverable(e.target.checked)} />
+              <span />
+            </span>
             Let people without access see the title, so they can request it
           </label>
         )}
 
         {warning && (
-          <div className="warning">
+          <div className="warning" role="alert">
             <p>{warning}</p>
             <button type="button" className="btn small danger" onClick={() => submit(true)} disabled={busy}>
               Upload as {cls} anyway
             </button>
           </div>
         )}
-        {error && <p className="error">{error}</p>}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="row end">
           <button type="button" className="btn ghost" onClick={onClose}>
             Cancel

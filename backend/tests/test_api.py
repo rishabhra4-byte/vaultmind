@@ -217,3 +217,12 @@ def test_chat_is_rate_limited(client, login):
     neha = login("neha")
     codes = [client.post("/api/assistant/chat", headers=neha, json={"message": "leave"}).status_code for _ in range(21)]
     assert codes[-1] == 429 and codes[:20] == [200] * 20
+
+
+def test_changing_sharing_bumps_updated_at(client, login, doc_id):
+    guide = doc_id("API Design Guidelines")
+    rohan = login("rohan")
+    before = client.get(f"/api/documents/{guide}", headers=rohan).json()["updated_at"]
+    r = client.patch(f"/api/documents/{guide}", headers=rohan, json={"share_team_ids": [4]})
+    assert r.status_code == 200 and r.json()["shared_with"] == ["Sales"]
+    assert r.json()["updated_at"] > before

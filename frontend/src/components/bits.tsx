@@ -1,8 +1,53 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { useApp } from "../state";
 import type { Classification } from "../types";
+
+/** Each team gets its own colour, used for avatars and team chips everywhere. */
+const TEAM_COLORS: Record<string, string> = {
+  Engineering: "#6366f1",
+  "Human Resources": "#ec4899",
+  Finance: "#10b981",
+  Sales: "#f97316",
+  Leadership: "#8b5cf6",
+};
+const FALLBACK = ["#0ea5e9", "#14b8a6", "#eab308", "#ef4444", "#a855f7", "#22c55e"];
+
+export function teamColor(team: string): string {
+  if (TEAM_COLORS[team]) return TEAM_COLORS[team];
+  let h = 0;
+  for (const ch of team) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return FALLBACK[h % FALLBACK.length];
+}
+
+const cssVar = (name: string, value: string) => ({ [name]: value }) as CSSProperties;
+
+export function Avatar({ name, team, size = 34 }: { name: string; team: string; size?: number }) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join("");
+  return (
+    <span
+      className="avatar"
+      style={{ ...cssVar("--av", teamColor(team)), width: size, height: size, fontSize: size * 0.38 }}
+      aria-hidden
+    >
+      {initials}
+    </span>
+  );
+}
+
+export function TeamChip({ team }: { team: string }) {
+  return (
+    <span className="team-chip" style={cssVar("--tc", teamColor(team))}>
+      {team}
+    </span>
+  );
+}
 
 const CLASS_LABEL: Record<Classification, string> = {
   public: "Public",
@@ -21,7 +66,7 @@ export function Ladder({ position, label }: { position: number; label: string })
     <div className="ladder" aria-label={`Position: ${label}, level ${position} of 6`}>
       <div className="ladder-steps" aria-hidden>
         {[1, 2, 3, 4, 5, 6].map((n) => (
-          <span key={n} className={n <= position ? "on" : ""} style={{ height: 6 + n * 3 }} />
+          <span key={n} className={n <= position ? `on step-${n}` : ""} style={{ height: 6 + n * 3 }} />
         ))}
       </div>
       <span className="ladder-label">{label}</span>
@@ -45,9 +90,42 @@ export function until(iso: string | null): string {
   return days <= 1 ? "Expires within a day" : `Expires in ${days} days`;
 }
 
-export function Empty({ title, children }: { title: string; children?: ReactNode }) {
+/** Wraps every occurrence of the query's words in <mark>. */
+export function Highlight({ text, query }: { text: string; query: string }) {
+  const words = query
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length > 1)
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (!words.length) return <>{text}</>;
+  const re = new RegExp(`(${words.join("|")})`, "gi");
+  return (
+    <>
+      {text.split(re).map((part, i) => (i % 2 === 1 ? <mark key={i}>{part}</mark> : part))}
+    </>
+  );
+}
+
+export function Skeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="skeleton-list" aria-busy="true" aria-label="Loading">
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="skeleton-row">
+          <span className="sk sk-icon" />
+          <span className="sk-lines">
+            <span className="sk sk-title" />
+            <span className="sk sk-line" />
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function Empty({ title, children, icon }: { title: string; children?: ReactNode; icon?: ReactNode }) {
   return (
     <div className="empty">
+      {icon && <span className="empty-icon">{icon}</span>}
       <p className="empty-title">{title}</p>
       {children && <div className="empty-body">{children}</div>}
     </div>

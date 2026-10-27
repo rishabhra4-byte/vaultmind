@@ -5,6 +5,7 @@ import Shell from "./components/Shell";
 import Admin from "./pages/Admin";
 import Assistant from "./pages/Assistant";
 import DocumentPage from "./pages/DocumentPage";
+import Landing from "./pages/Landing";
 import Library from "./pages/Library";
 import Login from "./pages/Login";
 import Requests from "./pages/Requests";
@@ -13,10 +14,20 @@ import "./styles.css";
 
 function App() {
   const { user, ready } = useApp();
-  if (!ready) return null;
-  if (!user) return <Login />;
+  if (!ready) return <div className="boot" aria-busy="true" />;
+
+  if (!user)
+    return (
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/signin" element={<Login />} />
+        <Route path="*" element={<Navigate to="/signin" replace />} />
+      </Routes>
+    );
+
   return (
     <Routes>
+      <Route path="/signin" element={<Navigate to="/" replace />} />
       <Route element={<Shell />}>
         <Route index element={<Assistant />} />
         <Route path="library" element={<Library />} />

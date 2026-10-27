@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
+import { Link } from "react-router-dom";
 import { ApiError } from "../api";
-import { Ladder } from "../components/bits";
+import { Avatar, ClassTag, Ladder, teamColor } from "../components/bits";
+import { IconLock, IconSparkle } from "../components/icons";
 import { useApp } from "../state";
+import { ThemeToggle } from "../theme";
 
 const POSITIONS = ["Intern", "Associate", "Senior", "Manager", "Director", "Executive"];
 
@@ -25,11 +28,61 @@ export default function Login() {
 
   return (
     <div className="login">
-      <section className="login-intro">
-        <div className="brand brand-lg">
-          <span className="brand-mark" aria-hidden />
+      <ThemeToggle className="login-theme on-light" />
+      <div className="login-mobile-brand">
+        <Link to="/" className="brand" aria-label="VaultMind home">
+          <span className="brand-mark">
+            <IconSparkle />
+          </span>
           VaultMind
+        </Link>
+      </div>
+      <section className="login-intro">
+        <div className="row between">
+          <div className="brand brand-lg">
+            <span className="brand-mark">
+              <IconSparkle />
+            </span>
+            VaultMind
+          </div>
+          <Link to="/" className="back-home">
+            ‹ Back to home
+          </Link>
         </div>
+
+        <div className="hero-art" aria-hidden>
+          <div className="float-card fc-1">
+            <div className="fc-title">
+              Employee Handbook <ClassTag value="public" />
+            </div>
+            <div className="fc-lines">
+              <span />
+              <span />
+              <span />
+            </div>
+          </div>
+          <div className="float-card fc-2">
+            <div className="fc-title">
+              Onboarding Guide <ClassTag value="internal" />
+            </div>
+            <div className="fc-lines">
+              <span />
+              <span />
+              <span />
+            </div>
+          </div>
+          <div className="float-card fc-3 locked">
+            <div className="fc-title">
+              <IconLock /> Board Notes
+            </div>
+            <div className="fc-lines">
+              <span />
+              <span />
+              <span />
+            </div>
+          </div>
+        </div>
+
         <h1>Ask for any company document. Only get what you're cleared to read.</h1>
         <p className="lede">
           VaultMind is the document assistant for {meta?.company ?? "your company"}. It finds the right files for your role,
@@ -38,7 +91,7 @@ export default function Login() {
         <ul className="legend">
           {meta?.classifications.map((c) => (
             <li key={c.value}>
-              <span className={`class-tag class-${c.value}`}>{c.label}</span>
+              <ClassTag value={c.value} />
               <span>{c.help}</span>
             </li>
           ))}
@@ -83,15 +136,23 @@ export default function Login() {
             <ul>
               {meta.demo_users.map((u) => (
                 <li key={u.email}>
-                  <button className="persona" onClick={() => go(u.email, u.password)} disabled={!!busy}>
+                  <button
+                    className="persona"
+                    onClick={() => go(u.email, u.password)}
+                    disabled={!!busy}
+                    style={{ "--av": teamColor(u.team) } as CSSProperties}
+                  >
+                    <Avatar name={u.full_name} team={u.team} size={40} />
+                    <span className="persona-text">
+                      <span className="persona-name">
+                        {u.full_name}
+                        {u.is_admin && <span className="pill">Admin</span>}
+                      </span>
+                      <span className="persona-role">
+                        {u.title}, {u.team}
+                      </span>
+                    </span>
                     <Ladder position={POSITIONS.indexOf(u.position) + 1} label={u.position} />
-                    <span className="persona-name">
-                      {u.full_name}
-                      {u.is_admin && <span className="pill">Admin</span>}
-                    </span>
-                    <span className="persona-role">
-                      {u.title}, {u.team}
-                    </span>
                   </button>
                 </li>
               ))}

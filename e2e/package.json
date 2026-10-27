@@ -1,0 +1,12 @@
+{
+  "name": "vaultmind-e2e",
+  "private": true,
+  "description": "Browser audit: every flow, 7 breakpoints, light and dark, axe accessibility scan",
+  "scripts": {
+    "audit": "node audit.js"
+  },
+  "devDependencies": {
+    "axe-core": "4.10.2",
+    "playwright": "1.63.0"
+  }
+}

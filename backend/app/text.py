@@ -97,12 +97,22 @@ def extractive_summary(text: str, max_sentences: int = 2, max_chars: int = 320) 
 
 
 def best_snippet(text: str, query: str, max_chars: int = 260) -> str:
-    """The sentence (plus a neighbour) that overlaps most with the query."""
+    """The sentence (plus a neighbour) that best matches the query.
+
+    Each matched word counts for 1 / (times it occurs in the passage), so a word that
+    pins down one sentence ("limit") outweighs one repeated throughout ("travel").
+    """
     sents = sentences(text)
     if not sents:
         return ""
     q = set(tokenize(query))
-    best_i = max(range(len(sents)), key=lambda i: (len(q & set(tokenize(sents[i]))), -i))
+    sent_terms = [set(tokenize(s)) for s in sents]
+    df = Counter(t for s in sents for t in tokenize(s) if t in q)
+
+    def score(i: int) -> tuple[float, int]:
+        return (sum(1 / df[t] for t in sent_terms[i] & q), -i)
+
+    best_i = max(range(len(sents)), key=score)
     snippet = sents[best_i]
     if len(snippet) < 120 and best_i + 1 < len(sents):
         snippet += " " + sents[best_i + 1]

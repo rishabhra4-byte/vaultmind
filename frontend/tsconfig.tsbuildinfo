@@ -1,1 +1,0 @@
-{"root":["./src/api.ts","./src/main.tsx","./src/state.tsx","./src/types.ts","./src/components/RichText.tsx","./src/components/Shell.tsx","./src/components/bits.tsx","./src/pages/Admin.tsx","./src/pages/Assistant.tsx","./src/pages/DocumentPage.tsx","./src/pages/Library.tsx","./src/pages/Login.tsx","./src/pages/Requests.tsx"],"version":"5.6.3"}
