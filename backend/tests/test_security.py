@@ -196,6 +196,15 @@ def test_hostile_file_names_are_sanitised(client, login):
     assert dl.headers["content-type"].startswith("text/plain")
 
 
+def test_files_named_in_any_language_download(client, login):
+    rohan = login("rohan")
+    r = _upload(client, rohan, "टीम योजना.txt", b"Plans for the team offsite in December.")
+    assert r.status_code == 201, r.text
+    dl = client.get(f"/api/documents/{r.json()['document']['id']}/download", headers=rohan)
+    assert dl.status_code == 200  # a header built from the raw name used to fail outside Latin-1
+    assert "filename*=UTF-8''" in dl.headers["content-disposition"]
+
+
 def test_downloads_never_use_the_uploaders_content_type(client, login):
     rohan = login("rohan")
     r = _upload(client, rohan, "page.html", b"<script>alert(1)</script><p>Team lunch on Friday.</p>", content_type="text/html")

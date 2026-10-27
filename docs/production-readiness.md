@@ -33,7 +33,7 @@ The details are in [F](#f-release-recommendation).
 | A4 | **The assistant's locked hints leaked the same way.** | High | The hints use title-only matching with a minimum score. | `test_assistant_locked_hints_match_titles_not_contents` |
 | A5 | **Locked rows showed tags and sensitivity flags generated from their content.** | Medium | Locked documents carry no summary, tags or flags. | `test_locked_documents_hide_content_derived_metadata` |
 | A6 | **Unlimited password guessing.** | High | 10 failed attempts per account and 50 per network address in 5 minutes. Unknown accounts get the same answer and timing, and input length is limited. Only failures count, so an office behind one address can't lock itself out. | `test_login_is_rate_limited_per_account`, `…_per_address`, `test_successful_sign_ins_do_not_use_up_the_limit`, `test_login_gives_the_same_answer_for_unknown_accounts` |
-| A7 | **Downloads trusted the uploader's content type and file name.** An uploaded HTML file could run in the app's origin, and a crafted name could inject headers. | High | Content types come from an allow-list, everything else is `application/octet-stream`. Files are always sent as attachments with `nosniff`, and names are sanitised. | `test_downloads_never_use_the_uploaders_content_type`, `test_hostile_file_names_are_sanitised` |
+| A7 | **Downloads trusted the uploader's content type and file name.** Downloads went out with whatever type the uploader's browser claimed (for example `text/html`), without `nosniff`. Only the attachment header kept browsers from rendering them. A file named outside Latin-1 (in Hindi, say) made the download fail with a server error. | Medium | Content types come from an allow-list, everything else is `application/octet-stream`. Files are always sent as attachments with `nosniff`. Names are sanitised, with an RFC 6266 UTF-8 file name. | `test_downloads_never_use_the_uploaders_content_type`, `test_hostile_file_names_are_sanitised`, `test_files_named_in_any_language_download` |
 | A8 | **Known-vulnerable dependencies.** pypdf had 18 advisories; Vite and React Router had advisories. | High | All upgraded. | `pip-audit` and `npm audit` report 0, both run in CI |
 | A9 | **No security headers or CSP.** Unknown `/api/...` URLs returned the app's HTML with status 200. | Medium | Added a strict CSP (no inline script or style, no `data:` fonts), `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP, and optional HSTS. Unknown API routes return a JSON 404. | `test_security_headers_on_api_responses`, `test_frontend_gets_a_strict_csp…`, `test_unknown_api_routes_are_json_404s`, browser audit "csp" check |
 | A10 | **Unbounded request bodies.** Memory could be exhausted before validation ran. | Medium | Size limit enforced while the body streams in. | `test_request_bodies_over_the_limit_are_refused_before_parsing` |
@@ -77,7 +77,7 @@ The details are in [F](#f-release-recommendation).
 | Accessibility | The sign-in page had no `main` landmark. The hero illustration was read as fragmented text. Eight buttons were all called "Request access". | Added the landmark. The illustration is now a described image. Buttons are named "Request access to <title>", and locked rows say so. |
 | Accessibility | The sign-in error wasn't announced, and the palette didn't expose the active option. | `role="alert"`; `aria-activedescendant`. |
 | Navigation | No 404 page, every tab had the same title, and signed-out deep links misbehaved. | A not-found page and per-page titles. Signed-out links go to sign-in. A non-admin opening `/admin` gets "not found". |
-| Data | The team list was missing after signing in, because metadata was only fetched once. | Metadata is fetched again when the signed-in person changes. |
+| Data | After A17 made the team list sign-in-only, the list was missing after signing in, because metadata was only fetched once. | Metadata is fetched again when the signed-in person changes. |
 | Data | The activity filter treated `%` and `_` as wildcards. | Escaped. |
 | Reliability | No readiness check. Stale database connections after a PostgreSQL restart. No clean shutdown. | `/api/ready` checks the database; the container health check uses it. `pool_pre_ping`. Graceful shutdown with a 20-second drain. |
 | Reliability | The rate limiter kept every key it had ever seen. | Idle keys are pruned. |
@@ -89,8 +89,8 @@ The details are in [F](#f-release-recommendation).
 
 | Suite | Where | Result |
 |---|---|---|
-| Backend: pytest, SQLite | Local, Python 3.13 | **88 passed**, 4 live tests skipped (92s) |
-| Backend: pytest, PostgreSQL 16 | Local, PostgreSQL 16.15 | **88 passed**, 4 live tests skipped (93s) |
+| Backend: pytest, SQLite | Local, Python 3.13 | **89 passed**, 4 live tests skipped (92s) |
+| Backend: pytest, PostgreSQL 16 | Local, PostgreSQL 16.15 | **89 passed**, 4 live tests skipped (94s) |
 | Backend: pytest, SQLite and PostgreSQL | GitHub Actions, Python 3.12 | **passed** (both jobs, every run) |
 | Live Claude API (`test_live_anthropic.py`, 4 tests) | — | **skipped: no API key available** (see D1) |
 | Lint and format (`ruff check`, `ruff format --check`) | Local and CI | **pass** |
