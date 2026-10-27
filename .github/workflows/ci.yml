@@ -73,7 +73,7 @@ jobs:
     name: e2e (${{ matrix.browser }})
     needs: [backend, frontend]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -113,17 +113,17 @@ jobs:
           key: playwright-${{ matrix.browser }}-${{ hashFiles('e2e/package-lock.json') }}
       - name: Install ${{ matrix.browser }}
         working-directory: e2e
-        # The system packages come from the Ubuntu mirrors, which are sometimes very slow
-        # (one WebKit install took 26 minutes); give up and retry rather than hang.
-        timeout-minutes: 20
+        # System packages come from the Ubuntu mirrors, which are sometimes very slow (one
+        # WebKit install took 26 minutes). The runner image already has what Chromium and
+        # Firefox need, so apt only runs when the browser can't start without it.
+        timeout-minutes: 30
         run: |
           npm ci
-          for attempt in 1 2 3; do
-            timeout 360 npx playwright install --with-deps ${{ matrix.browser }} && exit 0
-            echo "::warning::Installing ${{ matrix.browser }} timed out or failed (attempt $attempt), retrying"
-            sudo dpkg --configure -a || true   # finish anything the interrupted install left half-done
-          done
-          exit 1
+          npx playwright install ${{ matrix.browser }}
+          if ! node -e "require('playwright')['${{ matrix.browser }}'].launch().then((b) => b.close())"; then
+            echo "Installing system packages for ${{ matrix.browser }}"
+            npx playwright install-deps ${{ matrix.browser }}
+          fi
       - name: Browser audit (${{ matrix.browser }})
         working-directory: e2e
         run: BROWSER=${{ matrix.browser }} npm run audit
@@ -141,7 +141,7 @@ jobs:
     name: docker runtime
     needs: [backend, frontend]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Configure a demo deployment
@@ -178,7 +178,8 @@ jobs:
         working-directory: e2e
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install chromium
+          node -e "require('playwright').chromium.launch().then((b) => b.close())" || npx playwright install-deps chromium
           npm run audit
       - name: Data survives a restart
         run: |
