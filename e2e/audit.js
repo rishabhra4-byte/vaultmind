@@ -18,6 +18,7 @@ fs.mkdirSync(SHOTS, { recursive: true });
 
 const results = [];
 const problems = []; // console errors, failed requests
+const notes = []; // things worth knowing that don't fail the audit (e.g. a retried navigation)
 const ok = (name, cond, info = '') => results.push({ name, pass: !!cond, info });
 async function check(name, fn) {
   try {
@@ -73,7 +74,12 @@ async function newPage(browser, tag, opts = {}) {
 }
 
 async function signIn(page, name) {
-  await page.goto(BASE + '/signin');
+  // First navigation in a fresh context: retried once on a timeout (see the note in the sweep).
+  await page.goto(BASE + '/signin').catch(async (e) => {
+    if (!/Timeout/.test(e.message)) throw e;
+    notes.push(`${BROWSER}: loading /signin for ${name} timed out once and was retried`);
+    await page.goto(BASE + '/signin');
+  });
   await page.click(`.persona:has-text("${name}")`);
   await page.waitForSelector('.sidebar');
 }
@@ -659,8 +665,24 @@ async function signOut(page) {
       // bypassCSP only so the axe script can be injected; every other check runs with CSP enforced.
       const ctx = await browser.newContext({ viewport: { width: w, height: w < 800 ? 844 : 900 }, colorScheme: theme, bypassCSP: true });
       ctx.setDefaultTimeout(20000);
-      const p = await ctx.newPage();
+      let p = await ctx.newPage();
       watch(p, `${theme}@${w}`);
+      // Firefox under automation in CI occasionally never reports "load" for a navigation (seen
+      // on different pages in different runs, never in Chromium or WebKit, and the same pages
+      // load fine everywhere else in the run). Such a navigation is retried once in a new tab of
+      // the same context and listed in the report; a second timeout fails the check.
+      const open = async (url) => {
+        try {
+          await p.goto(url);
+        } catch (e) {
+          if (!/Timeout/.test(e.message)) throw e;
+          notes.push(`${BROWSER}: loading ${url.replace(BASE, '') || '/'} at ${w}px ${theme} timed out once and was retried`);
+          await p.close().catch(() => {});
+          p = await ctx.newPage();
+          watch(p, `${theme}@${w}`);
+          await p.goto(url);
+        }
+      };
       for (const [i, [name, path, user]] of pages.entries()) {
         const tag = `${name} @${w} ${theme}`;
         try {
@@ -669,7 +691,7 @@ async function signOut(page) {
           // that the page is on the app's origin, so the next person's session is set right here
           // before navigating.
           if (i > 0) await p.evaluate((t) => (t ? localStorage.setItem('vaultmind.token', t) : localStorage.removeItem('vaultmind.token')), token);
-          await p.goto(BASE + path);
+          await open(BASE + path);
           await p.waitForLoadState('networkidle');
           await p.waitForTimeout(name === 'admin' ? 900 : 300);
           const r = await p.evaluate(() => {
@@ -736,10 +758,14 @@ function report() {
     console.log(`FAIL  ${f.name}${f.info ? '  ->  ' + f.info : ''}`);
     annotate('error', `${BROWSER}: ${f.name}`.slice(0, 120), f.info || 'failed');
   }
+  for (const n of notes) {
+    console.log(`NOTE  ${n}`);
+    annotate('warning', `${BROWSER}: note`, n);
+  }
   const uniqueProblems = [...new Set(problems)];
   console.log(`\nConsole/network problems: ${uniqueProblems.length}`);
   uniqueProblems.slice(0, 30).forEach((x) => console.log('  ' + x));
   if (uniqueProblems.length) annotate('error', `${BROWSER}: console or network problems`, uniqueProblems.slice(0, 10).join('\n'));
-  fs.writeFileSync(path.join(__dirname, `report-${BROWSER}.json`), JSON.stringify({ results, problems: uniqueProblems }, null, 2));
+  fs.writeFileSync(path.join(__dirname, `report-${BROWSER}.json`), JSON.stringify({ results, problems: uniqueProblems, notes }, null, 2));
   process.exit(failed.length || uniqueProblems.length ? 1 : 0);
 }
