@@ -8,7 +8,8 @@ on:
 jobs:
   backend:
     name: backend (${{ matrix.database }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -47,7 +48,8 @@ jobs:
           pytest
 
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
@@ -70,7 +72,8 @@ jobs:
   e2e:
     name: e2e (${{ matrix.browser }})
     needs: [backend, frontend]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -103,11 +106,24 @@ jobs:
           nohup python -m uvicorn app.main:app --port 8000 > server.log 2>&1 &
           for i in $(seq 60); do curl -fs localhost:8000/api/ready && break; sleep 1; done
           curl -fs localhost:8000/api/ready
+      - name: Cache the ${{ matrix.browser }} build
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ matrix.browser }}-${{ hashFiles('e2e/package-lock.json') }}
       - name: Install ${{ matrix.browser }}
         working-directory: e2e
+        # The system packages come from the Ubuntu mirrors, which are sometimes very slow
+        # (one WebKit install took 26 minutes); give up and retry rather than hang.
+        timeout-minutes: 20
         run: |
           npm ci
-          npx playwright install --with-deps ${{ matrix.browser }}
+          for attempt in 1 2 3; do
+            timeout 360 npx playwright install --with-deps ${{ matrix.browser }} && exit 0
+            echo "::warning::Installing ${{ matrix.browser }} timed out or failed (attempt $attempt), retrying"
+            sudo dpkg --configure -a || true   # finish anything the interrupted install left half-done
+          done
+          exit 1
       - name: Browser audit (${{ matrix.browser }})
         working-directory: e2e
         run: BROWSER=${{ matrix.browser }} npm run audit
@@ -124,7 +140,8 @@ jobs:
   docker:
     name: docker runtime
     needs: [backend, frontend]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Configure a demo deployment
