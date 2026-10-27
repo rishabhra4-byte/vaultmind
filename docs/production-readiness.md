@@ -1,6 +1,6 @@
 # VaultMind production-readiness audit
 
-**Date:** 27 October 2026 · **Code audited:** `main`, commits `3304ed3` to `2178331` · **Scope:** functionality, AI integration, security, accessibility (WCAG 2.2 AA), browsers and devices, Docker and deployment, fonts and design, performance, data and reliability, testing and CI, SEO and maintainability.
+**Date:** 27 October 2026 · **Code audited:** `main`, commits `3304ed3` to `a9a292e` · **Scope:** functionality, AI integration, security, accessibility (WCAG 2.2 AA), browsers and devices, Docker and deployment, fonts and design, performance, data and reliability, testing and CI, SEO and maintainability.
 
 Every test result below comes from actually running the test. Anything that could not be run says so, with the reason and the steps to finish it.
 
@@ -98,7 +98,7 @@ The details are in [F](#f-release-recommendation).
 | `npm audit --audit-level=high` | Local and CI | **0 vulnerabilities** |
 | TypeScript (`tsc --noEmit`) and production build | Local and CI | **pass**. The CI step that greps the bundle for secrets passes. |
 | Browser audit, Chromium 153 (`audit.js`) | Local | **274/274 checks passed, 0 console errors or failed requests** |
-| Browser audit, Chromium, Firefox and WebKit | GitHub Actions, final commit `2178331` | **all three passed**, with no retried page loads |
+| Browser audit, Chromium, Firefox and WebKit | GitHub Actions, final commits `2178331` and `a9a292e` | **All three passed on both.** On `a9a292e`, Firefox needed one retried page load (`/` at 1440px, dark); `2178331` needed none |
 | Docker runtime job | GitHub Actions, every run | **passed, every step.** It built the image, refused to start with no secret, became healthy, passed the smoke test, passed the full browser audit against the container (production mode, PostgreSQL), kept its data across a restart, logged no errors, and shut down gracefully |
 | Accessibility review (`a11y-review.js`) | Local, Chromium | **16/16 passed.** Covers a keyboard-only sign-in with visible focus, the palette and dialog focus trap and return, focus never hidden behind sticky parts at 390 and 1280px, reduced motion, text spacing (WCAG 1.4.12), and accessible names |
 | axe WCAG 2 A/AA scan, every page, light and dark, 390 and 1440px | Local and CI (inside `audit.js`) | **0 violations** |
@@ -124,13 +124,15 @@ Nothing here has been filtered out. In every run where the browser audit got to 
 | `16747f6` | Such a load is retried once and listed as a note | ✅ | ✅ | ✅ | ✅ | stalled installing, cancelled | ✅ |
 | `af43ac2` | Pinned runner image, job time limits, install retries | ✅ | ✅ | ❌ the retries interrupted apt and broke it | ✅ | ✅ | ✅ |
 | `2178331` | System packages installed only when a browser needs them | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `326a541` | Test that scanning never calls the model | ✅ | ✅ | cancelled, superseded by the next commit | cancelled | cancelled | cancelled |
+| `a9a292e` | Test for file names in any language; report wording | ✅ | ✅ | ✅ | ✅ (one load retried) | ✅ | ✅ |
 
 **What this shows:**
 
-- **Firefox under automation sometimes never reports a page's `load` event.** This happened in three runs, each time on a different page. It never happened in Chromium or WebKit, and the same pages loaded fine everywhere else in those runs. The cause is not established. One guess, not confirmed, is the browser switching processes on a page sent with `Cross-Origin-Opener-Policy`.
+- **Firefox under automation sometimes never reports a page's `load` event.** This happened in four runs, each time on a different page; the last one was handled by the retry. It never happened in Chromium or WebKit, and the same pages loaded fine everywhere else in those runs. The cause is not established. One guess, not confirmed, is the browser switching processes on a page sent with `Cross-Origin-Opener-Policy`.
   - The audit now retries such a load once and reports it as a note and a CI warning. A second timeout still fails.
-  - The final runs needed no retries.
-  - Real Firefox users would not be affected by an automation event, but D3 (real devices) still applies.
+  - Of the last two full runs, one needed no retries and one needed a single retry.
+  - Nothing points to real Firefox users being affected: the same pages loaded normally on every other attempt. D3 (real devices) still applies.
 - **WebKit's system packages sometimes took very long to install from the Ubuntu mirrors**: 26 minutes once, and two installs stalled until I cancelled them. CI now pins `ubuntu-24.04`, caches the browsers, gives every job a time limit, and only runs apt when a browser can't start without it.
 
 ---
