@@ -1,0 +1,74 @@
+import { Fragment, type ReactNode } from "react";
+import { Link } from "react-router-dom";
+
+export type CiteMap = Map<number, { n: number; title: string }>;
+
+/** Number citations in order of first appearance, so markers match the sources list. */
+export function numberCitations(text: string, titles: Map<number, string>): CiteMap {
+  const map: CiteMap = new Map();
+  for (const m of text.matchAll(/\[D(\d+)\]/g)) {
+    const id = Number(m[1]);
+    if (!map.has(id)) map.set(id, { n: map.size + 1, title: titles.get(id) ?? `Document ${id}` });
+  }
+  return map;
+}
+
+/**
+ * A small, safe renderer for the assistant's replies: paragraphs, bullet lists, **bold**,
+ * `code`, and [D12] citations rendered as numbered links. It builds React elements rather
+ * than injecting HTML, so document text can never run script in the page.
+ */
+export function RichText({ text, cites }: { text: string; cites: CiteMap }) {
+  const blocks: ReactNode[] = [];
+  let list: string[] = [];
+
+  const flush = () => {
+    if (list.length) {
+      blocks.push(
+        <ul key={`l${blocks.length}`}>
+          {list.map((item, i) => (
+            <li key={i}>{inline(item, cites)}</li>
+          ))}
+        </ul>,
+      );
+      list = [];
+    }
+  };
+
+  for (const raw of text.split("\n")) {
+    const line = raw.trimEnd();
+    const bullet = line.match(/^\s*(?:[-*•]|\d+\.)\s+(.*)$/);
+    if (bullet) {
+      list.push(bullet[1]);
+      continue;
+    }
+    flush();
+    if (!line.trim()) continue;
+    const heading = line.match(/^#{1,4}\s+(.*)$/);
+    blocks.push(
+      <p key={`p${blocks.length}`} className={heading ? "rt-heading" : undefined}>
+        {inline(heading ? heading[1] : line, cites)}
+      </p>,
+    );
+  }
+  flush();
+  return <div className="rich-text">{blocks}</div>;
+}
+
+function inline(text: string, cites: CiteMap): ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`|\s?\[D\d+\])/g).map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) return <strong key={i}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith("`") && part.endsWith("`")) return <code key={i}>{part.slice(1, -1)}</code>;
+    const cite = part.match(/^\s?\[D(\d+)\]$/);
+    if (cite) {
+      const id = Number(cite[1]);
+      const c = cites.get(id);
+      return (
+        <Link key={i} to={`/library/${id}`} className="cite" title={c?.title} aria-label={`Source: ${c?.title}`}>
+          {c?.n ?? "•"}
+        </Link>
+      );
+    }
+    return <Fragment key={i}>{part}</Fragment>;
+  });
+}
