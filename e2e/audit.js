@@ -47,6 +47,23 @@ function watch(page, tag) {
   });
 }
 
+// In GitHub Actions, failures also become annotations, readable without downloading logs.
+const annotate = (level, title, msg) => {
+  if (process.env.GITHUB_ACTIONS) {
+    console.log(`::${level} title=${title}::${String(msg).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}`);
+  }
+};
+
+// A block that throws outside a check (e.g. a sign-in that never completes) is recorded as a
+// failure and the audit carries on with the next block, instead of losing the whole report.
+async function block(name, fn) {
+  try {
+    await fn();
+  } catch (e) {
+    ok(`block: "${name}" ran to the end`, false, e.message.split('\n')[0].slice(0, 200));
+  }
+}
+
 async function newPage(browser, tag, opts = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true, ...opts });
   if (IS_CHROMIUM) await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
@@ -71,7 +88,7 @@ async function signOut(page) {
   console.log(`Browser: ${BROWSER} ${browser.version()}`);
 
   // ---------------------------------------------------------------- public pages
-  {
+  await block('public pages', async () => {
     const p = await newPage(browser, 'public');
     await check('landing: loads with hero headline', async () => (await p.goto(BASE + '/'), await p.textContent('.hero h1')).includes("knows who's asking"));
     await check('landing: "How it works" anchor scrolls to section', async () => {
@@ -156,10 +173,10 @@ async function signOut(page) {
       return (await p.$('.sidebar')) === null;
     });
     await p.context().close();
-  }
+  });
 
   // ---------------------------------------------------------------- assistant as intern
-  {
+  await block('assistant as intern', async () => {
     const p = await newPage(browser, 'aarav');
     await signIn(p, 'Aarav Mehta');
     await check('assistant: empty state shows four starter prompts', async () => (await p.$$('.starter')).length === 4);
@@ -326,10 +343,10 @@ async function signOut(page) {
     await check('doc: locked document has no download or preview', async () => (await p.$('.paper')) === null && (await p.$('button:has-text("Download")')) === null);
     await signOut(p);
     await p.context().close();
-  }
+  });
 
   // ---------------------------------------------------------------- library + upload as manager
-  {
+  await block('library and upload as manager', async () => {
     const p = await newPage(browser, 'rohan');
     await signIn(p, 'Rohan Iyer');
     await p.click('nav >> text=Library');
@@ -500,10 +517,10 @@ async function signOut(page) {
     });
     await signOut(p);
     await p.context().close();
-  }
+  });
 
   // ---------------------------------------------------------------- requester side: cancel + deny
-  {
+  await block('requester', async () => {
     const p = await newPage(browser, 'karan');
     await signIn(p, 'Karan Singh');
     await check('requests: requester can cancel a pending request', async () => {
@@ -522,10 +539,10 @@ async function signOut(page) {
     });
     await signOut(p);
     await p.context().close();
-  }
+  });
 
   // ---------------------------------------------------------------- admin
-  {
+  await block('admin', async () => {
     const p = await newPage(browser, 'dev');
     await signIn(p, 'Dev Patel');
     await check('admin: dashboard figures count up to real values', async () => {
@@ -540,26 +557,31 @@ async function signOut(page) {
       const all = await p.$$eval('.audit li', (els) => els.every((e) => e.classList.contains('denied')));
       return all;
     });
+    // Each change waits for the server's answer: a toast from the previous change may still be
+    // on screen, and closing the page with a request in flight could cancel it.
+    const saved = (action) =>
+      Promise.all([p.waitForResponse((r) => r.url().includes('/api/admin/users/') && r.request().method() === 'PATCH'), action()]).then(
+        ([r]) => r.ok() || `HTTP ${r.status()}`,
+      );
     await check('admin: changing a position saves', async () => {
-      await p.selectOption('select[aria-label="Position for Aarav Mehta"]', { label: 'Associate' });
+      const a = await saved(() => p.selectOption('select[aria-label="Position for Aarav Mehta"]', { label: 'Associate' }));
+      const b = await saved(() => p.selectOption('select[aria-label="Position for Aarav Mehta"]', { label: 'Intern' }));
       await toast(p, 'Updated Aarav Mehta');
-      await p.selectOption('select[aria-label="Position for Aarav Mehta"]', { label: 'Intern' });
-      await toast(p, 'Updated Aarav Mehta');
+      return (a === true && b === true) || `${a} / ${b}`;
     });
     await check('admin: cannot deactivate yourself', async () => p.isDisabled('input[aria-label="Dev Patel is active"]'));
     await check('admin: deactivating and reactivating a user', async () => {
-      await p.click('label:has(input[aria-label="Neha Kapoor is active"])');
-      await toast(p, 'Updated Neha Kapoor');
-      const off = !(await p.isChecked('input[aria-label="Neha Kapoor is active"]'));
-      await p.click('label:has(input[aria-label="Neha Kapoor is active"])');
-      await p.waitForTimeout(500);
-      return off && (await p.isChecked('input[aria-label="Neha Kapoor is active"]'));
+      const a = await saved(() => p.click('label:has(input[aria-label="Neha Kapoor is active"])'));
+      await p.waitForFunction(() => !document.querySelector('input[aria-label="Neha Kapoor is active"]').checked);
+      const b = await saved(() => p.click('label:has(input[aria-label="Neha Kapoor is active"])'));
+      await p.waitForFunction(() => document.querySelector('input[aria-label="Neha Kapoor is active"]').checked);
+      return (a === true && b === true) || `${a} / ${b}`;
     });
     await p.context().close();
-  }
+  });
 
   // ---------------------------------------------------------------- failure handling
-  {
+  await block('failure handling', async () => {
     const p = await newPage(browser, 'failures');
     await signIn(p, 'Neha Kapoor');
     p.__expectFailures = true;
@@ -589,10 +611,10 @@ async function signOut(page) {
     });
     p.__expectFailures = false;
     await p.context().close();
-  }
+  });
 
   // ---------------------------------------------------------------- keyboard
-  {
+  await block('keyboard', async () => {
     const p = await newPage(browser, 'keyboard');
     await signIn(p, 'Priya Sharma');
     await check('keyboard: first Tab reveals "Skip to content", Enter jumps to main', async () => {
@@ -608,7 +630,7 @@ async function signOut(page) {
       await p.waitForSelector('.msg-user');
     });
     await p.context().close();
-  }
+  });
 
   // ---------------------------------------------------------------- responsive sweep + axe
   const widths = [320, 360, 390, 768, 1024, 1280, 1440, 1920];
@@ -695,12 +717,23 @@ async function signOut(page) {
 
   await browser.close();
 
+  report();
+})().catch((e) => {
+  ok('audit ran to the end', false, e.stack || e.message);
+  report();
+});
+
+function report() {
   const failed = results.filter((r) => !r.pass);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
-  for (const f of failed) console.log(`FAIL  ${f.name}${f.info ? '  ->  ' + f.info : ''}`);
+  for (const f of failed) {
+    console.log(`FAIL  ${f.name}${f.info ? '  ->  ' + f.info : ''}`);
+    annotate('error', `${BROWSER}: ${f.name}`.slice(0, 120), f.info || 'failed');
+  }
   const uniqueProblems = [...new Set(problems)];
   console.log(`\nConsole/network problems: ${uniqueProblems.length}`);
   uniqueProblems.slice(0, 30).forEach((x) => console.log('  ' + x));
+  if (uniqueProblems.length) annotate('error', `${BROWSER}: console or network problems`, uniqueProblems.slice(0, 10).join('\n'));
   fs.writeFileSync(path.join(__dirname, `report-${BROWSER}.json`), JSON.stringify({ results, problems: uniqueProblems }, null, 2));
   process.exit(failed.length || uniqueProblems.length ? 1 : 0);
-})();
+}
