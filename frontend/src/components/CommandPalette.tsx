@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useApp } from "../state";
 import type { Doc, Recommendation } from "../types";
-import { ClassTag } from "./bits";
+import { ClassTag, useModalDialog } from "./bits";
 import { IconChat, IconFile, IconInbox, IconLibrary, IconLock, IconSearch, IconShield, IconSparkle } from "./icons";
 
 interface Item {
@@ -27,11 +27,7 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
   const [suggested, setSuggested] = useState(true);
   const [active, setActive] = useState(0);
 
-  useEffect(() => {
-    const d = ref.current;
-    d?.showModal();
-    return () => d?.close();
-  }, []);
+  useModalDialog(ref);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,9 +51,9 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
     };
   }, [q]);
 
-  const go = (path: string) => {
+  const go = (path: string, state?: unknown) => {
     onClose();
-    navigate(path);
+    navigate(path, { state });
   };
 
   const items = useMemo<Item[]>(() => {
@@ -73,7 +69,7 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
           </>
         ),
         icon: <IconSparkle />,
-        run: () => go(`/?ask=${encodeURIComponent(query)}`),
+        run: () => go("/", { ask: query }),
       });
     }
     const pages = [
@@ -134,6 +130,8 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
           role="combobox"
           aria-expanded="true"
           aria-controls="palette-list"
+          aria-activedescendant={items[active] ? `palette-opt-${active}` : undefined}
+          aria-autocomplete="list"
         />
       </div>
       <ul className="palette-list" id="palette-list" role="listbox" ref={listRef}>
@@ -144,6 +142,7 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
             <li key={it.key} role="presentation">
               {header && <div className="palette-group">{header}</div>}
               <div
+                id={`palette-opt-${i}`}
                 className="palette-item"
                 role="option"
                 aria-selected={i === active}

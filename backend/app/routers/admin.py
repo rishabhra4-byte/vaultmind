@@ -8,7 +8,7 @@ from .. import audit
 from ..assistant import COMPANY
 from ..config import get_settings
 from ..database import get_db
-from ..deps import admin_user
+from ..deps import admin_user, current_user, optional_user
 from ..llm import get_llm
 from ..models import (
     AccessRequest,
@@ -21,7 +21,7 @@ from ..models import (
     User,
 )
 from ..schemas import AuditOut, MetaOut, TeamOut, UserOut, UserUpdate
-from ..seed import DEMO_PASSWORD
+from ..seed import DEMO_PASSWORD, DOMAIN
 from ..serializers import audit_out
 
 router = APIRouter(prefix="/api", tags=["admin"])
@@ -35,12 +35,14 @@ CLASSIFICATION_HELP = {
 
 
 @router.get("/meta", response_model=MetaOut)
-def meta(db: Session = Depends(get_db)):
-    """Public app metadata for the login screen and forms."""
+def meta(viewer: User | None = Depends(optional_user), db: Session = Depends(get_db)):
+    """App metadata. Signed-out visitors get only what the public pages need; the team list
+    is for signed-in people, and demo accounts are listed only when demo mode is on."""
     llm = get_llm()
     demo = []
-    if get_settings().seed_demo_data:
-        for u in db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.position, User.id)):
+    if get_settings().demo_enabled:
+        demo_accounts = select(User).where(User.is_active.is_(True), User.email.endswith(f"@{DOMAIN}"))
+        for u in db.scalars(demo_accounts.order_by(User.position, User.id)):
             demo.append(
                 {
                     "email": u.email,
@@ -58,13 +60,13 @@ def meta(db: Session = Depends(get_db)):
         ai_model=getattr(llm, "name", None) if llm else None,
         positions=[{"value": p.value, "label": p.label} for p in Position],
         classifications=[{"value": c.value, "label": c.value.title(), "help": CLASSIFICATION_HELP[c]} for c in Classification],
-        teams=[TeamOut.model_validate(t) for t in db.scalars(select(Team).order_by(Team.name))],
+        teams=[TeamOut.model_validate(t) for t in db.scalars(select(Team).order_by(Team.name))] if viewer else [],
         demo_users=demo,
     )
 
 
 @router.get("/teams", response_model=list[TeamOut])
-def teams(db: Session = Depends(get_db)):
+def teams(_: User = Depends(current_user), db: Session = Depends(get_db)):
     return db.scalars(select(Team).order_by(Team.name)).all()
 
 
@@ -102,7 +104,7 @@ def audit_log(
 ):
     stmt = select(AuditEvent).order_by(AuditEvent.id.desc()).limit(limit)
     if action:
-        stmt = stmt.where(AuditEvent.action.startswith(action))
+        stmt = stmt.where(AuditEvent.action.startswith(action, autoescape=True))
     if actor_id:
         stmt = stmt.where(AuditEvent.actor_id == actor_id)
     return [audit_out(e) for e in db.scalars(stmt)]

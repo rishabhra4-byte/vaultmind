@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
-import { Avatar, ClassTag, teamColor } from "../components/bits";
+import { Avatar, ClassTag, teamColor, usePageTitle } from "../components/bits";
 import {
   IconActivity,
   IconArrowRight,
@@ -56,6 +56,7 @@ const FEATURES = [
 export default function Landing() {
   const { meta } = useApp();
   const [scrolled, setScrolled] = useState(false);
+  usePageTitle("VaultMind: the document assistant that knows who's asking");
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -113,7 +114,11 @@ export default function Landing() {
             <p className="hero-note muted small">No sign-up. Pick one of nine people at a demo company and start asking.</p>
           </div>
 
-          <div className="hero-visual" aria-label="The same question asked by an intern and a manager">
+          <div
+            className="hero-visual"
+            role="img"
+            aria-label="Example: an intern and a manager ask for the SDE-2 salary band. The intern sees that Salary Bands 2026 exists but needs Manager level, with a button to request access. The manager gets the answer, 22 to 34 lakh rupees a year, with the document cited."
+          >
             <div className="compare-card">
               <div className="compare-head">
                 <Avatar name="Aarav Mehta" team="Engineering" size={30} />

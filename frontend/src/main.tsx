@@ -1,3 +1,6 @@
+import "@fontsource-variable/plus-jakarta-sans";
+import "@fontsource/source-serif-4/400.css";
+import "@fontsource/source-serif-4/600.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
@@ -8,6 +11,7 @@ import DocumentPage from "./pages/DocumentPage";
 import Landing from "./pages/Landing";
 import Library from "./pages/Library";
 import Login from "./pages/Login";
+import NotFound from "./pages/NotFound";
 import Requests from "./pages/Requests";
 import { AppProvider, useApp } from "./state";
 import "./styles.css";
@@ -21,7 +25,11 @@ function App() {
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/signin" element={<Login />} />
-        <Route path="*" element={<Navigate to="/signin" replace />} />
+        {/* App pages need an account; anything else is a genuine 404. */}
+        {["/library/*", "/requests", "/admin"].map((p) => (
+          <Route key={p} path={p} element={<Navigate to="/signin" replace />} />
+        ))}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     );
 
@@ -34,7 +42,7 @@ function App() {
         <Route path="library/:id" element={<DocumentPage />} />
         <Route path="requests" element={<Requests />} />
         {user.is_admin && <Route path="admin" element={<Admin />} />}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
   );

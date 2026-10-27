@@ -9,7 +9,8 @@ Approval creates a grant that expires automatically.
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from .. import audit
@@ -50,7 +51,11 @@ def create_request(body: AccessRequestIn, user: User = Depends(current_user), db
 
     req = AccessRequest(document_id=doc.id, requester_id=user.id, reason=body.reason.strip(), duration_days=body.duration_days)
     db.add(req)
-    db.flush()
+    try:
+        db.flush()  # the unique index on pending requests catches a concurrent duplicate here
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "You already have a pending request for this document") from None
     audit.record(db, user, "access.request", "document", doc.id, title=doc.title, request_id=req.id)
     db.commit()
     db.refresh(req)
@@ -82,8 +87,19 @@ def _decide(db: Session, user: User, request_id: int, approve: bool, body: Decis
         raise HTTPException(status.HTTP_409_CONFLICT, f"This request was already {req.status}")
 
     now = datetime.now(UTC)
-    req.status = RequestStatus.APPROVED if approve else RequestStatus.DENIED
-    req.decided_by, req.decided_at, req.decision_note = user.id, now, body.note.strip()
+    new_status = RequestStatus.APPROVED if approve else RequestStatus.DENIED
+    # Compare-and-set: only one decision can win, even if two approvers click at once.
+    claimed = db.execute(
+        update(AccessRequest)
+        .where(AccessRequest.id == req.id, AccessRequest.status == RequestStatus.PENDING)
+        .values(status=new_status, decided_by=user.id, decided_at=now, decision_note=body.note.strip())
+        .execution_options(synchronize_session=False)
+    ).rowcount
+    if claimed != 1:
+        db.rollback()
+        db.refresh(req)
+        raise HTTPException(status.HTTP_409_CONFLICT, f"This request was already {req.status}")
+    db.refresh(req)
     if approve:
         days = body.duration_days or req.duration_days
         req.duration_days = days

@@ -49,6 +49,7 @@ def chat(body: ChatIn, user: User = Depends(current_user), db: Session = Depends
         convo.id,
         question=question[:300],
         mode=reply.mode,
+        fallback=reply.fallback_reason,
         cited=[c["id"] for c in reply.citations],
         locked=[l["id"] for l in reply.locked],
     )

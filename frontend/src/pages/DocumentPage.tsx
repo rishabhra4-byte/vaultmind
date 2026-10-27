@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, download } from "../api";
-import { Avatar, ClassTag, Empty, Modal, RequestAccessDialog, Skeleton, TeamChip, teamColor, timeAgo } from "../components/bits";
+import {
+  Avatar,
+  ClassTag,
+  Empty,
+  Modal,
+  RequestAccessDialog,
+  Skeleton,
+  TeamChip,
+  teamColor,
+  timeAgo,
+  usePageTitle,
+} from "../components/bits";
 import { IconDownload, IconFile, IconLock, IconShield, IconSparkle, IconTrash } from "../components/icons";
 import { RichText } from "../components/RichText";
 import { useApp } from "../state";
@@ -27,6 +38,7 @@ export default function DocumentPage() {
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  usePageTitle(missing ? "Document not found" : (doc?.title ?? "Document"));
 
   const [version, setVersion] = useState(0);
 
@@ -110,7 +122,7 @@ export default function DocumentPage() {
             <>
               {doc.summary && <p className="doc-abstract">{doc.summary}</p>}
               <div className="paper">
-                <RichText text={doc.preview ?? ""} cites={new Map()} />
+                <RichText text={doc.preview ?? ""} cites={new Map()} headingLevel={2} />
               </div>
             </>
           ) : (
@@ -151,7 +163,7 @@ export default function DocumentPage() {
                 </button>
                 <button
                   className="btn block"
-                  onClick={() => navigate(`/?ask=${encodeURIComponent(`What are the key points of “${doc.title}”?`)}`)}
+                  onClick={() => navigate("/", { state: { ask: `What are the key points of “${doc.title}”?` } })}
                 >
                   <IconSparkle /> Ask the assistant about this
                 </button>

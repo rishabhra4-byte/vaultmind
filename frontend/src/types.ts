@@ -81,6 +81,7 @@ export interface Message {
     citations?: DocCard[];
     locked?: LockedHint[];
     suggestions?: DocCard[];
+    fallback?: { reason: string; message: string };
   };
   created_at: string;
 }

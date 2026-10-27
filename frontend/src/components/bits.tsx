@@ -90,6 +90,13 @@ export function until(iso: string | null): string {
   return days <= 1 ? "Expires within a day" : `Expires in ${days} days`;
 }
 
+/** Sets the browser tab title for the current page. */
+export function usePageTitle(title: string) {
+  useEffect(() => {
+    document.title = title.startsWith("VaultMind") ? title : `${title} · VaultMind`;
+  }, [title]);
+}
+
 /** Wraps every occurrence of the query's words in <mark>. */
 export function Highlight({ text, query }: { text: string; query: string }) {
   const words = query
@@ -132,13 +139,28 @@ export function Empty({ title, children, icon }: { title: string; children?: Rea
   );
 }
 
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  const ref = useRef<HTMLDialogElement>(null);
+/**
+ * Opens a <dialog> as a modal while the component is mounted, and gives focus back to whatever
+ * had it before. Browsers do that themselves on close(), but not when React removes the dialog
+ * from the page first (which is what happens on Esc), so it is done here explicitly.
+ */
+export function useModalDialog(ref: React.RefObject<HTMLDialogElement | null>) {
   useEffect(() => {
     const d = ref.current;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     d?.showModal();
-    return () => d?.close();
-  }, []);
+    return () => {
+      if (d?.open) d.close();
+      const now = document.activeElement;
+      const focusLost = !now || now === document.body || (d !== null && d.contains(now));
+      if (opener && opener !== document.body && opener.isConnected && focusLost) opener.focus({ preventScroll: true });
+    };
+  }, [ref]);
+}
+
+export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useModalDialog(ref);
   return (
     <dialog ref={ref} className="modal" onClose={onClose} onCancel={onClose} aria-label={title}>
       <div className="modal-head">

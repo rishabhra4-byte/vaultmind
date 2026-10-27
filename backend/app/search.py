@@ -128,4 +128,10 @@ class BM25Index:
         return results[:top_k]
 
 
+# Full-text index: searched only over documents the user may open.
 index = BM25Index()
+
+# Title-only index: the *only* index ever searched for documents a user can't open
+# ("locked" hints in the library and the assistant). Matching locked documents on their
+# content would let someone probe what a locked file says by watching which searches hit it.
+title_index = BM25Index()

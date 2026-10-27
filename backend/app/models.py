@@ -12,7 +12,7 @@ AuditEvent                          append-only activity log
 from datetime import UTC, datetime
 from enum import IntEnum, StrEnum
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -161,6 +161,18 @@ class AccessGrant(Base):
 
 class AccessRequest(Base):
     __tablename__ = "access_requests"
+    __table_args__ = (
+        # At most one pending request per person per document, enforced by the database so
+        # two quick clicks (or two tabs) can't create duplicates.
+        Index(
+            "uq_one_pending_request",
+            "document_id",
+            "requester_id",
+            unique=True,
+            sqlite_where=text("status = 'pending'"),
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)

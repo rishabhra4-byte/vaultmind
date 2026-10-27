@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api";
-import { ClassTag, RequestAccessDialog, teamColor } from "../components/bits";
+import { ClassTag, RequestAccessDialog, teamColor, usePageTitle } from "../components/bits";
 import {
   IconCoins,
   IconCompass,
@@ -71,6 +71,8 @@ export default function Assistant() {
   const [requesting, setRequesting] = useState<LockedHint | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const askedRef = useRef<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  usePageTitle("Assistant");
 
   const loadConversations = useCallback(() => {
     api<Conversation[]>("/api/assistant/conversations").then(setConversations).catch(() => {});
@@ -105,10 +107,13 @@ export default function Assistant() {
       setDraft("");
       const optimistic: Message = { id: -1, role: "user", content: message, meta: {}, created_at: new Date().toISOString() };
       setMessages((m) => (convo ? [...m, optimistic] : [optimistic]));
+      const controller = new AbortController();
+      abortRef.current = controller;
       try {
         const res = await api<{ conversation: Conversation; user_message: Message; reply: Message }>("/api/assistant/chat", {
           method: "POST",
           json: { message, conversation_id: convo },
+          signal: controller.signal,
         });
         setFreshId(res.reply.id);
         setMessages((m) => [...m.filter((x) => x.id !== -1), res.user_message, res.reply]);
@@ -117,23 +122,28 @@ export default function Assistant() {
       } catch (err) {
         setMessages((m) => m.filter((x) => x.id !== -1));
         setDraft(message);
-        notify(err instanceof ApiError ? err.message : "The assistant didn't respond", "error");
+        if (controller.signal.aborted) notify("Stopped waiting for that answer. Your question is back in the box.");
+        else notify(err instanceof ApiError ? err.message : "The assistant didn't respond. Check your connection.", "error");
       } finally {
+        abortRef.current = null;
         setSending(false);
       }
     },
     [loadConversations, notify, setParams],
   );
 
-  // Questions sent from the command palette or a document page arrive as ?ask=
+  // Questions from the command palette or a document page arrive as navigation state, which
+  // only the app itself can set (unlike a URL parameter, an outside link can't trigger it).
+  const location = useLocation();
+  const navigate = useNavigate();
   useEffect(() => {
-    const ask = params.get("ask");
-    if (ask && askedRef.current !== ask) {
-      askedRef.current = ask;
-      setParams({}, { replace: true });
-      send(ask, null);
+    const ask = (location.state as { ask?: unknown } | null)?.ask;
+    if (typeof ask === "string" && ask.trim() && askedRef.current !== location.key) {
+      askedRef.current = location.key;
+      navigate(location.pathname, { replace: true, state: null });
+      send(ask.slice(0, 2000), null);
     }
-  }, [params, send, setParams]);
+  }, [location, navigate, send]);
 
   async function remove(id: number) {
     await api(`/api/assistant/conversations/${id}`, { method: "DELETE" });
@@ -177,7 +187,8 @@ export default function Assistant() {
       </aside>
 
       <section className="chat">
-        <div className="chat-scroll">
+        {messages.length > 0 && <h1 className="sr-only">Assistant</h1>}
+        <div className="chat-scroll" role="log" aria-live="polite" aria-label="Conversation">
           {messages.length === 0 ? (
             <div className="chat-empty">
               <span className="pill hello-badge">
@@ -251,9 +262,15 @@ export default function Assistant() {
               aria-label="Message"
               maxLength={2000}
             />
-            <button className="btn primary" disabled={sending || !draft.trim()} aria-label="Send">
-              <IconSend />
-            </button>
+            {sending ? (
+              <button type="button" className="btn stop" onClick={() => abortRef.current?.abort()} aria-label="Stop waiting">
+                <span className="stop-square" aria-hidden />
+              </button>
+            ) : (
+              <button className="btn primary" disabled={!draft.trim()} aria-label="Send">
+                <IconSend />
+              </button>
+            )}
           </form>
           {meta?.ai_mode === "offline" && (
             <p className="composer-note">
@@ -333,7 +350,10 @@ function Bubble({
   if (message.role === "user") {
     return (
       <div className="msg msg-user">
-        <p>{message.content}</p>
+        <p>
+          <span className="sr-only">You asked: </span>
+          {message.content}
+        </p>
       </div>
     );
   }
@@ -349,11 +369,13 @@ function Bubble({
 
   const sources = [...cites.entries()].map(([id, c]) => ({ id, ...c, card: meta.citations?.find((x) => x.id === id) }));
   return (
-    <div className="msg msg-assistant-row">
+    <div className="msg msg-assistant-row" aria-busy={!done}>
       <span className="bot-avatar">
         <IconSparkle />
       </span>
       <div className="msg-assistant">
+        <span className="sr-only">VaultMind answered: </span>
+        {meta.fallback && <p className="fallback-note">{meta.fallback.message}</p>}
         <div>
           <RichText text={shown} cites={cites} />
           {!done && <span className="caret" aria-hidden />}
@@ -409,7 +431,7 @@ function Bubble({
                 {l.request_pending ? (
                   <span className="pill pending">Request pending</span>
                 ) : (
-                  <button className="btn small primary" onClick={() => onRequest(l)}>
+                  <button className="btn small primary" onClick={() => onRequest(l)} aria-label={`Request access to ${l.title}`}>
                     Request access
                   </button>
                 )}
@@ -420,7 +442,10 @@ function Bubble({
 
         {done && (
           <div className="msg-tools">
-            <button className="icon-btn" onClick={copy}>
+            <span className={`answer-label ${meta.mode === "ai" ? "ai" : ""}`}>
+              {meta.mode === "ai" ? "Written by Claude from documents you can open" : "Offline answer: matching passages, no AI"}
+            </span>
+            <button className="icon-btn" onClick={copy} aria-label="Copy answer">
               <IconCopy width={14} height={14} /> Copy
             </button>
           </div>

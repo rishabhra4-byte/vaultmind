@@ -1,5 +1,6 @@
 import time
 from collections import defaultdict, deque
+from collections.abc import Hashable
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -25,6 +26,16 @@ def current_user(
     return user
 
 
+def optional_user(
+    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """The signed-in user if the request carries a valid token, otherwise None (never raises)."""
+    user_id = decode_access_token(creds.credentials) if creds else None
+    user = db.get(User, user_id) if user_id else None
+    return user if user is not None and user.is_active else None
+
+
 def admin_user(user: User = Depends(current_user)) -> User:
     if not user.is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Administrators only")
@@ -32,14 +43,18 @@ def admin_user(user: User = Depends(current_user)) -> User:
 
 
 class RateLimiter:
-    """Sliding-window limiter per user, in memory. Fine for one process; use Redis when scaling out."""
+    """Sliding-window limiter per key, in memory. Fine for one process; use Redis when scaling out."""
 
-    def __init__(self, limit: int, window_seconds: float) -> None:
-        self.limit, self.window = limit, window_seconds
-        self._hits: dict[int, deque[float]] = defaultdict(deque)
+    def __init__(self, limit: int, window_seconds: float, message: str = "Slow down: try again in {retry}s") -> None:
+        self.limit, self.window, self.message = limit, window_seconds, message
+        self._hits: dict[Hashable, deque[float]] = defaultdict(deque)
+        self._calls = 0
 
-    def check(self, key: int) -> None:
+    def check(self, key: Hashable) -> None:
         now = time.monotonic()
+        self._calls += 1
+        if self._calls % 1000 == 0:
+            self._prune(now)
         hits = self._hits[key]
         while hits and now - hits[0] > self.window:
             hits.popleft()
@@ -47,13 +62,26 @@ class RateLimiter:
             retry = int(self.window - (now - hits[0])) + 1
             raise HTTPException(
                 status.HTTP_429_TOO_MANY_REQUESTS,
-                f"Slow down: try again in {retry}s",
+                self.message.format(retry=retry),
                 headers={"Retry-After": str(retry)},
             )
         hits.append(now)
+
+    def _prune(self, now: float) -> None:
+        """Forget keys with no hits inside the window, so memory doesn't grow with every new key."""
+        for key in [k for k, hits in self._hits.items() if not hits or now - hits[-1] > self.window]:
+            del self._hits[key]
+
+    def __len__(self) -> int:
+        return len(self._hits)
 
     def reset(self) -> None:
         self._hits.clear()
 
 
 chat_limiter = RateLimiter(limit=20, window_seconds=60)
+# Per account and per network address, so neither one password-guesser nor one target
+# can be hammered. Counts every attempt within the window.
+LOGIN_MESSAGE = "Too many sign-in attempts. Try again in {retry}s."
+login_limiter_account = RateLimiter(limit=10, window_seconds=300, message=LOGIN_MESSAGE)
+login_limiter_ip = RateLimiter(limit=50, window_seconds=300, message=LOGIN_MESSAGE)

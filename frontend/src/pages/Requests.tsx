@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../api";
-import { Avatar, ClassTag, Empty, Skeleton, timeAgo, until } from "../components/bits";
+import { Avatar, ClassTag, Empty, Skeleton, timeAgo, until, usePageTitle } from "../components/bits";
 import { IconCheck, IconInbox, IconLock } from "../components/icons";
 import { useApp } from "../state";
 import type { AccessRequest, Grant } from "../types";
@@ -21,6 +21,7 @@ export default function Requests() {
   const [mine, setMine] = useState<AccessRequest[]>([]);
   const [grants, setGrants] = useState<Grant[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
+  usePageTitle("Access requests");
 
   const load = useCallback(async () => {
     try {

@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api";
-import { ClassTag, Empty, Highlight, Modal, RequestAccessDialog, Skeleton, TeamChip, teamColor, timeAgo } from "../components/bits";
+import {
+  ClassTag,
+  Empty,
+  Highlight,
+  Modal,
+  RequestAccessDialog,
+  Skeleton,
+  TeamChip,
+  teamColor,
+  timeAgo,
+  usePageTitle,
+} from "../components/bits";
 import { IconFile, IconLock, IconSearch, IconUpload } from "../components/icons";
 import { useApp } from "../state";
 import type { Classification, Doc, ScanFinding } from "../types";
@@ -25,6 +36,7 @@ export default function Library() {
   const [uploading, setUploading] = useState(false);
   const [requesting, setRequesting] = useState<Doc | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  usePageTitle("Library");
 
   // Filters other than classification are applied by the server; classification is
   // filtered here so the chips can show counts for every level at once.
@@ -177,6 +189,7 @@ export default function Library() {
             <div className="doc-main">
               <Link to={`/library/${d.id}`} className="doc-title">
                 <Highlight text={d.title} query={q} />
+                {!d.access.allowed && <span className="sr-only"> (locked)</span>}
               </Link>
               <div className="doc-meta">
                 <ClassTag value={d.classification} />
@@ -192,7 +205,7 @@ export default function Library() {
               ) : d.access.request_pending ? (
                 <span className="pill pending">Request pending</span>
               ) : (
-                <button className="btn small" onClick={() => setRequesting(d)}>
+                <button className="btn small" onClick={() => setRequesting(d)} aria-label={`Request access to ${d.title}`}>
                   Request access
                 </button>
               )}

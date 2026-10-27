@@ -34,3 +34,10 @@ def put(data: bytes) -> tuple[str, str]:
 
 def get(key: str) -> bytes:
     return (_root() / key).read_bytes()
+
+
+def delete(key: str) -> None:
+    try:
+        (_root() / key).unlink()
+    except FileNotFoundError:
+        pass

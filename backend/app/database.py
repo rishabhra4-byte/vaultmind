@@ -14,6 +14,9 @@ def make_engine(url: str):
     kwargs = {}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
+    else:
+        # Check pooled connections before use, so a database restart doesn't break requests.
+        kwargs["pool_pre_ping"] = True
     engine = create_engine(url, **kwargs)
 
     if url.startswith("sqlite"):

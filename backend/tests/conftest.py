@@ -7,13 +7,15 @@ os.environ.setdefault("VAULTMIND_DATABASE_URL", f"sqlite:///{_tmp}/test.db")
 os.environ["VAULTMIND_STORAGE_DIR"] = f"{_tmp}/storage"
 os.environ["VAULTMIND_ANTHROPIC_API_KEY"] = ""
 os.environ["VAULTMIND_JWT_SECRET"] = "test-secret-that-is-long-enough-for-hs256"
+os.environ["VAULTMIND_SEED_DEMO_DATA"] = "true"
+os.environ["VAULTMIND_ENV"] = "development"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app import llm  # noqa: E402
 from app.database import Base, SessionLocal, engine  # noqa: E402
-from app.deps import chat_limiter  # noqa: E402
+from app.deps import chat_limiter, login_limiter_account, login_limiter_ip  # noqa: E402
 from app.main import app  # noqa: E402
 from app.seed import DEMO_PASSWORD, seed  # noqa: E402
 from app.services import rebuild_index  # noqa: E402
@@ -28,7 +30,7 @@ class FakeLLM:
         self.reply = reply
         self.calls: list[dict] = []
 
-    def complete(self, system: str, messages: list[dict], max_tokens: int = 1024) -> str:
+    def complete(self, system: str, messages: list[dict], max_tokens: int = 1024, *, timeout: float | None = None) -> str:
         self.calls.append({"system": system, "messages": messages})
         return self.reply
 
@@ -46,6 +48,8 @@ def fresh_db():
         seed(db)
         rebuild_index(db)
     chat_limiter.reset()
+    login_limiter_account.reset()
+    login_limiter_ip.reset()
     llm.set_llm(None)  # offline by default; tests opt in to the fake
     yield
     llm.reset_llm()

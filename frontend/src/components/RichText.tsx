@@ -18,7 +18,7 @@ export function numberCitations(text: string, titles: Map<number, string>): Cite
  * `code`, and [D12] citations rendered as numbered links. It builds React elements rather
  * than injecting HTML, so document text can never run script in the page.
  */
-export function RichText({ text, cites }: { text: string; cites: CiteMap }) {
+export function RichText({ text, cites, headingLevel = 3 }: { text: string; cites: CiteMap; headingLevel?: number }) {
   const blocks: ReactNode[] = [];
   let list: string[] = [];
 
@@ -44,12 +44,19 @@ export function RichText({ text, cites }: { text: string; cites: CiteMap }) {
     }
     flush();
     if (!line.trim()) continue;
-    const heading = line.match(/^#{1,4}\s+(.*)$/);
-    blocks.push(
-      <p key={`p${blocks.length}`} className={heading ? "rt-heading" : undefined}>
-        {inline(heading ? heading[1] : line, cites)}
-      </p>,
-    );
+    const heading = line.match(/^(#{1,4})\s+(.*)$/);
+    if (heading) {
+      // Real heading elements, so screen-reader users can move between sections. `headingLevel`
+      // is the level for "#", chosen to sit under the page's own headings.
+      const Tag = `h${Math.min(headingLevel + heading[1].length - 1, 6)}` as "h2";
+      blocks.push(
+        <Tag key={`h${blocks.length}`} className="rt-heading">
+          {inline(heading[2], cites)}
+        </Tag>,
+      );
+      continue;
+    }
+    blocks.push(<p key={`p${blocks.length}`}>{inline(line, cites)}</p>);
   }
   flush();
   return <div className="rich-text">{blocks}</div>;

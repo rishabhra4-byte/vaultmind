@@ -4,7 +4,9 @@
 // Needs a fresh server with demo data (it changes data as it goes):
 //   cd backend && rm -f vaultmind.db && uvicorn app.main:app   (serving the built frontend)
 //   cd e2e && npm install && npx playwright install chromium && npm run audit
-const { chromium } = require('playwright');
+const playwright = require('playwright');
+const BROWSER = process.env.BROWSER || 'chromium'; // chromium | firefox | webkit
+const IS_CHROMIUM = BROWSER === 'chromium';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -47,7 +49,7 @@ function watch(page, tag) {
 
 async function newPage(browser, tag, opts = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true, ...opts });
-  await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
+  if (IS_CHROMIUM) await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
   const page = await ctx.newPage();
   watch(page, tag);
   return page;
@@ -65,7 +67,8 @@ async function signOut(page) {
 }
 
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await playwright[BROWSER].launch();
+  console.log(`Browser: ${BROWSER} ${browser.version()}`);
 
   // ---------------------------------------------------------------- public pages
   {
@@ -78,6 +81,28 @@ async function signOut(page) {
       return top < 200 || `section top at ${top}`;
     });
     await check('landing: nav gets background after scroll', async () => (await p.$('.site-nav.scrolled')) !== null);
+    await check('fonts: self-hosted fonts load (no third-party requests)', async () => {
+      const r = await p.evaluate(async () => {
+        await document.fonts.ready;
+        await document.fonts.load('16px "Plus Jakarta Sans Variable"');
+        return {
+          sans: document.fonts.check('16px "Plus Jakarta Sans Variable"'),
+          loaded: [...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family),
+          thirdParty: performance.getEntriesByType('resource').map((e) => e.name).filter((u) => !u.startsWith(location.origin)),
+        };
+      });
+      return (r.sans && r.loaded.some((f) => f.includes('Plus Jakarta')) && r.thirdParty.length === 0) || JSON.stringify(r);
+    });
+    await check('csp: strict policy is sent and the theme script still runs under it', async () => {
+      const res = await p.goto(BASE + '/');
+      const csp = res.headers()['content-security-policy'] || '';
+      const theme = await p.evaluate(() => document.documentElement.dataset.theme);
+      return (csp.includes("script-src 'self'") && !csp.includes('unsafe-inline') && (theme === 'light' || theme === 'dark')) || `${csp} / ${theme}`;
+    });
+    await check('privacy: signed-out visitors do not get the team list', async () => {
+      const meta = await (await p.request.get(BASE + '/api/meta')).json();
+      return meta.teams.length === 0;
+    });
     await check('landing: "Try the demo" opens sign-in', async () => {
       await p.click('.site-nav a:has-text("Try the demo")');
       await p.waitForURL(/\/signin$/);
@@ -147,6 +172,7 @@ async function signOut(page) {
     await check('assistant: locked hint never reveals salary figures', async () => !(await p.textContent('.chat-scroll')).includes('22 to 34'));
     await check('assistant: copy button copies the answer', async () => {
       await p.click('.msg-tools button');
+      if (!IS_CHROMIUM) return true; // clipboard permissions can only be granted to Chromium in automation
       await toast(p, 'Answer copied');
       const clip = await p.evaluate(() => navigator.clipboard.readText());
       return (clip.length > 20 && !clip.includes('[D')) || clip;
@@ -236,9 +262,46 @@ async function signOut(page) {
       await p.keyboard.press('Escape');
       return (!text.includes('Falcon') && !text.includes('Board Meeting')) || text.slice(0, 200);
     });
-    await check('nav: non-admin visiting /admin is sent home', async () => {
+    await check('nav: non-admin visiting /admin gets the not-found page', async () => {
       await p.goto(BASE + '/admin');
-      await p.waitForURL(BASE + '/');
+      await p.waitForSelector('h1:has-text("This page doesn\'t exist")');
+    });
+    await check('nav: unknown page shows a 404 with a way back', async () => {
+      await p.goto(BASE + '/no-such-page');
+      await p.waitForSelector('.not-found a:has-text("Go to the assistant")');
+      return (await p.title()).startsWith('Page not found');
+    });
+    await check('titles: each page sets its own tab title', async () => {
+      const titles = {};
+      for (const [path, sel] of [['/', '.chat'], ['/library', '.doc-row'], ['/requests', 'h1'], ['/library/6', '.doc-hero h1']]) {
+        await p.goto(BASE + path);
+        await p.waitForSelector(sel);
+        await p.waitForTimeout(150);
+        titles[path] = await p.title();
+      }
+      const ok = titles['/'].startsWith('Assistant') && titles['/library'].startsWith('Library') &&
+        titles['/requests'].startsWith('Access requests') && titles['/library/6'].startsWith('Backend Onboarding Guide');
+      return ok || JSON.stringify(titles);
+    });
+    await check('assistant: answers say whether AI wrote them', async () => {
+      await p.goto(BASE + '/');
+      await p.click('.starter >> nth=1');
+      await p.waitForSelector('.msg-tools .answer-label', { timeout: 10000 });
+      return (await p.textContent('.msg-tools .answer-label')).includes('Offline answer');
+    });
+    await check('assistant: Stop cancels a slow answer and restores the question', async () => {
+      await p.click('.threads button:has-text("New conversation")');
+      await p.route('**/api/assistant/chat', async (r) => { await new Promise((res) => setTimeout(res, 3000)); await r.continue().catch(() => {}); });
+      p.__expectFailures = true; // the cancelled request is reported as aborted, which is the point
+      await p.fill('.composer textarea', 'A question I will cancel');
+      await p.click('.composer button[aria-label="Send"]');
+      await p.click('.composer button[aria-label="Stop waiting"]');
+      await toast(p, 'Stopped waiting');
+      const v = await p.inputValue('.composer textarea');
+      await p.unroute('**/api/assistant/chat');
+      await p.waitForTimeout(300);
+      p.__expectFailures = false;
+      return v === 'A question I will cancel' || v;
     });
     await check('doc: unknown document shows a helpful empty state', async () => {
       await p.goto(BASE + '/library/99999');
@@ -542,7 +605,7 @@ async function signOut(page) {
   }
 
   // ---------------------------------------------------------------- responsive sweep + axe
-  const widths = [360, 390, 768, 1024, 1280, 1440, 1920];
+  const widths = [320, 360, 390, 768, 1024, 1280, 1440, 1920];
   const pages = [
     ['landing', '/', null],
     ['signin', '/signin', null],
@@ -553,20 +616,31 @@ async function signOut(page) {
     ['admin', '/admin', 'Dev Patel'],
   ];
   const axeFindings = new Map();
+  // One session per person, reused across screen sizes (signing in 16 times would trip the
+  // login rate limit, which is working as intended).
+  const tokens = {};
+  const tokenFor = async (name) => {
+    if (!tokens[name]) {
+      const email = `${name.split(' ')[0].toLowerCase()}@northwind.example`;
+      const r = await fetch(`${BASE}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'demo1234' }) });
+      tokens[name] = (await r.json()).access_token;
+    }
+    return tokens[name];
+  };
   for (const theme of ['light', 'dark']) {
     for (const w of widths) {
-      const ctx = await browser.newContext({ viewport: { width: w, height: w < 800 ? 844 : 900 }, colorScheme: theme });
+      // bypassCSP only so the axe script can be injected; every other check runs with CSP enforced.
+      const ctx = await browser.newContext({ viewport: { width: w, height: w < 800 ? 844 : 900 }, colorScheme: theme, bypassCSP: true });
+      ctx.setDefaultTimeout(20000);
       const p = await ctx.newPage();
       watch(p, `${theme}@${w}`);
-      let who = null;
       for (const [name, path, user] of pages) {
-        if (user !== who) {
-          if (who) await p.evaluate(() => localStorage.removeItem('vaultmind.token'));
-          if (user) await signIn(p, user);
-          who = user;
-        }
+        const token = user ? await tokenFor(user) : null;
+        await p.goto(BASE + '/robots.txt'); // same origin, so the token can be set before the app loads
+        await p.evaluate((t) => (t ? localStorage.setItem('vaultmind.token', t) : localStorage.removeItem('vaultmind.token')), token);
         await p.goto(BASE + path);
-        await p.waitForTimeout(name === 'admin' ? 1100 : 700);
+        await p.waitForLoadState('networkidle');
+        await p.waitForTimeout(name === 'admin' ? 900 : 300);
         const r = await p.evaluate(() => {
           const vw = document.documentElement.clientWidth;
           const over = [];
@@ -596,7 +670,7 @@ async function signOut(page) {
         if (w <= 390) ok(`layout: heading fits phone, ${tag}`, r.h1 <= 40, `h1 ${r.h1}px`);
         if (w <= 390) ok(`layout: touch targets ≥24px, ${tag}`, r.tiny === 0, `${r.tiny} small targets`);
         if (w === 768 || (w === 390 && theme === 'dark')) await p.screenshot({ path: `${SHOTS}${name}-${w}-${theme}.png` });
-        if (w === 1440 || w === 390) {
+        if ((w === 1440 || w === 390) && (IS_CHROMIUM || theme === 'light')) {
           await p.addScriptTag({ content: AXE });
           const res = await p.evaluate(async () => {
             const r = await window.axe.run(document, { runOnly: ['wcag2a', 'wcag2aa'] });
@@ -622,6 +696,6 @@ async function signOut(page) {
   const uniqueProblems = [...new Set(problems)];
   console.log(`\nConsole/network problems: ${uniqueProblems.length}`);
   uniqueProblems.slice(0, 30).forEach((x) => console.log('  ' + x));
-  fs.writeFileSync(path.join(__dirname, 'report.json'), JSON.stringify({ results, problems: uniqueProblems }, null, 2));
+  fs.writeFileSync(path.join(__dirname, `report-${BROWSER}.json`), JSON.stringify({ results, problems: uniqueProblems }, null, 2));
   process.exit(failed.length || uniqueProblems.length ? 1 : 0);
 })();

@@ -8,6 +8,7 @@ from ..config import get_settings
 from ..database import get_db
 from ..deps import current_user
 from ..extract import UnsupportedFile, extract_text
+from ..files import content_disposition, media_type_for, safe_filename
 from ..models import (
     DEFAULT_MIN_POSITION,
     AccessRequest,
@@ -33,11 +34,18 @@ from ..schemas import (
     UserOut,
     WhoCanAccess,
 )
-from ..search import index
-from ..sensitivity import rank, scan
+from ..search import index, title_index
+from ..sensitivity import rank, redact, scan
 from ..serializers import document_out
-from ..services import AccessView, access_view, active_grant_ids, index_document, ingest_document, summarise
-from ..text import keywords
+from ..services import (
+    AccessView,
+    access_view,
+    active_grant_ids,
+    index_document,
+    ingest_document,
+    unindex_document,
+)
+from ..text import extractive_summary, keywords
 
 router = APIRouter(prefix="/api", tags=["documents"])
 
@@ -84,7 +92,12 @@ def list_documents(
         candidates |= {i for i, d in view.docs.items() if is_discoverable_to(user, d)}
 
     if q and q.strip():
-        ordered = [h.doc_id for h in index.search(q, allowed_doc_ids=candidates, top_k=50)]
+        # Content search only over documents the user can open; locked documents match on
+        # their title alone, so search results can't be used to probe what they contain.
+        openable = [h.doc_id for h in index.search(q, allowed_doc_ids=set(view.allowed), top_k=50)]
+        locked = candidates - set(view.allowed)
+        by_title = [h.doc_id for h in title_index.search(q, allowed_doc_ids=locked, top_k=50)] if locked else []
+        ordered = openable + by_title
     else:
         ordered = sorted(candidates, key=lambda i: (i in view.allowed, view.docs[i].updated_at), reverse=True)
 
@@ -125,11 +138,10 @@ def download(doc_id: int, user: User = Depends(current_user), db: Session = Depe
         raise HTTPException(status.HTTP_403_FORBIDDEN, can_view(user, doc, view.grants).reason)
     audit.record(db, user, "document.download", "document", doc.id, title=doc.title)
     db.commit()
-    safe = doc.filename.replace('"', "")
     return Response(
         storage.get(doc.storage_key),
-        media_type=doc.mime_type,
-        headers={"Content-Disposition": f'attachment; filename="{safe}"'},
+        media_type=media_type_for(doc.filename),
+        headers={"Content-Disposition": content_disposition(doc.filename), "Cache-Control": "no-store"},
     )
 
 
@@ -160,14 +172,14 @@ async def scan_upload(file: UploadFile = File(...), user: User = Depends(current
     """Preview the sensitivity scan before uploading, so the form can suggest a classification."""
     data = await _read_upload(file)
     try:
-        text = extract_text(file.filename or "upload", data)
+        text = extract_text(safe_filename(file.filename), data)
     except UnsupportedFile as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
     result = scan(text)
     return ScanOut(
         suggested_classification=result.suggested,
         findings=result.findings,
-        summary=summarise(text, file.filename or ""),
+        summary=redact(extractive_summary(text)),  # quick and free; the AI summary is made on upload
         tags=keywords(text, 5),
     )
 
@@ -205,7 +217,7 @@ async def upload(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "min_position must be between 1 and 6")
 
     data = await _read_upload(file)
-    filename = file.filename or "upload.txt"
+    filename = safe_filename(file.filename)
 
     try:
         text = extract_text(filename, data)
@@ -239,7 +251,7 @@ async def upload(
         uploader=user,
         filename=filename,
         data=data,
-        mime_type=file.content_type or "application/octet-stream",
+        mime_type=media_type_for(filename),
         title=title or filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ").title(),
         owner_team_id=team_id,
         classification=classification,
@@ -263,7 +275,7 @@ async def upload(
     try:
         db.commit()
     except Exception:
-        index.remove_document(doc.id)
+        unindex_document(doc.id)
         raise
     db.refresh(doc)
     return UploadOut(
@@ -327,9 +339,13 @@ def delete_document(doc_id: int, user: User = Depends(current_user), db: Session
     if not can_manage(user, doc, view.grants):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can't delete this document")
     audit.record(db, user, "document.delete", "document", doc.id, title=doc.title)
+    storage_key = doc.storage_key
     db.delete(doc)
     db.commit()
-    index.remove_document(doc_id)
+    unindex_document(doc_id)
+    # Blobs are shared by identical files; remove this one only if nothing else uses it.
+    if db.scalar(select(Document.id).where(Document.storage_key == storage_key).limit(1)) is None:
+        storage.delete(storage_key)
 
 
 @router.get("/recommendations", response_model=list[RecommendationOut])

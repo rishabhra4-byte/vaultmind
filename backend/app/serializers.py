@@ -18,9 +18,11 @@ def document_out(doc: Document, user: User, grants: set[int], pending: set[int] 
         min_position_label=Position(doc.min_position).label,
         discoverable=doc.discoverable,
         shared_with=sorted(s.team.name for s in doc.shares),
-        summary=doc.summary if decision.allowed else "",  # don't leak content through the summary
-        tags=doc.tags or [],
-        sensitivity_flags=doc.sensitivity_flags or [],
+        # Summary, tags and scanner flags are all derived from the content, so people who
+        # can't open the document don't get them either.
+        summary=doc.summary if decision.allowed else "",
+        tags=(doc.tags or []) if decision.allowed else [],
+        sensitivity_flags=(doc.sensitivity_flags or []) if decision.allowed else [],
         uploaded_by=doc.uploader.full_name if doc.uploader else None,
         created_at=doc.created_at,
         updated_at=doc.updated_at,

@@ -48,8 +48,8 @@ class UserOut(ORM):
 
 
 class LoginIn(BaseModel):
-    email: str
-    password: str
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=256)
 
 
 class TokenOut(BaseModel):

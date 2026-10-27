@@ -1,7 +1,7 @@
 import { useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import { ApiError } from "../api";
-import { Avatar, ClassTag, Ladder, teamColor } from "../components/bits";
+import { Avatar, ClassTag, Ladder, teamColor, usePageTitle } from "../components/bits";
 import { IconLock, IconSparkle } from "../components/icons";
 import { useApp } from "../state";
 import { ThemeToggle } from "../theme";
@@ -9,11 +9,12 @@ import { ThemeToggle } from "../theme";
 const POSITIONS = ["Intern", "Associate", "Senior", "Manager", "Director", "Executive"];
 
 export default function Login() {
-  const { signIn, meta } = useApp();
+  const { signIn, meta, metaSettled } = useApp();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  usePageTitle("Sign in");
 
   async function go(e: string, p: string) {
     setBusy(e);
@@ -26,8 +27,12 @@ export default function Login() {
     }
   }
 
+  // Everything below depends on the metadata (company name, the legend, the demo people), so the
+  // page appears once it has arrived, in its final layout, instead of jumping as parts load in.
+  if (!metaSettled) return <main className="login" aria-busy="true" />;
+
   return (
-    <div className="login">
+    <main className="login">
       <ThemeToggle className="login-theme on-light" />
       <div className="login-mobile-brand">
         <Link to="/" className="brand" aria-label="VaultMind home">
@@ -121,7 +126,11 @@ export default function Login() {
               required
             />
           </label>
-          {error && <p className="error">{error}</p>}
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
           <button className="btn primary" disabled={!!busy}>
             {busy === email ? "Signing in…" : "Sign in"}
           </button>
@@ -160,6 +169,6 @@ export default function Login() {
           </div>
         )}
       </section>
-    </div>
+    </main>
   );
 }

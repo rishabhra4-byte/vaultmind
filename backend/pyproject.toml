@@ -15,3 +15,6 @@ ignore = ["B008", "E741"]  # Depends() in defaults is idiomatic FastAPI
 testpaths = ["tests"]
 addopts = "-p no:logging"
 filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff.lint.isort]
+known-third-party = ["alembic"]

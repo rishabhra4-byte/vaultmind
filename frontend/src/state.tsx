@@ -11,6 +11,8 @@ interface Toast {
 interface AppState {
   user: User | null;
   meta: Meta | null;
+  /** True once the first metadata request has finished, whether or not it succeeded. */
+  metaSettled: boolean;
   ready: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => void;
@@ -30,6 +32,7 @@ export function useApp(): AppState {
 export function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [meta, setMeta] = useState<Meta | null>(null);
+  const [metaSettled, setMetaSettled] = useState(false);
   const [ready, setReady] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [inboxCount, setInboxCount] = useState(0);
@@ -54,7 +57,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setUnauthorizedHandler(signOut);
-    api<Meta>("/api/meta").then(setMeta).catch(() => setMeta(null));
+    api<Meta>("/api/meta")
+      .then(setMeta)
+      .catch(() => setMeta(null))
+      .finally(() => setMetaSettled(true));
     if (!getToken()) {
       setReady(true);
       return;
@@ -69,6 +75,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (user) refreshInbox();
   }, [user, refreshInbox]);
 
+  // Teams are only included for signed-in people, so reload metadata when that changes.
+  const userId = user?.id ?? null;
+  useEffect(() => {
+    if (userId !== null) api<Meta>("/api/meta").then(setMeta).catch(() => {});
+  }, [userId]);
+
   const signIn = useCallback(async (email: string, password: string) => {
     const res = await api<{ access_token: string; user: User }>("/api/auth/login", { method: "POST", json: { email, password } });
     setToken(res.access_token);
@@ -76,8 +88,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, meta, ready, signIn, signOut, notify, inboxCount, refreshInbox }),
-    [user, meta, ready, signIn, signOut, notify, inboxCount, refreshInbox],
+    () => ({ user, meta, metaSettled, ready, signIn, signOut, notify, inboxCount, refreshInbox }),
+    [user, meta, metaSettled, ready, signIn, signOut, notify, inboxCount, refreshInbox],
   );
 
   return (

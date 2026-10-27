@@ -21,11 +21,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .llm import get_llm
+from .llm import REASONS, LLMError, get_llm
 from .models import AccessRequest, Document, Message, Position, RequestStatus, User
 from .policy import can_view, is_discoverable_to
 from .recommend import recommend
-from .search import DocHit, index
+from .search import DocHit, index, title_index
 from .services import AccessView, access_view
 from .text import best_snippet, tokenize
 
@@ -37,21 +37,25 @@ RECOMMEND_INTENT = re.compile(
     r"(?i)\b(recommend|suggest|what should i (?:read|look at|start)|where (?:do|should) i start|"
     r"onboard\w*|new (?:here|joiner|hire)|getting started|first (?:day|week)|which (?:docs|documents|files))\b"
 )
-LOCKED_MIN_SCORE = 3.0
+LOCKED_MIN_SCORE = 1.0  # title-index BM25 score; titles are short, so scores are small
 RELEVANCE_FLOOR = 0.4  # drop hits scoring under 40% of the best one
 
 
 @dataclass
 class Reply:
     content: str
-    mode: str
+    mode: str  # "ai": written by the model; "offline": built from passages, no model involved
     citations: list[dict] = field(default_factory=list)
     locked: list[dict] = field(default_factory=list)
     suggestions: list[dict] = field(default_factory=list)
+    fallback_reason: str | None = None  # set when the model was configured but failed
 
     @property
     def meta(self) -> dict:
-        return {"mode": self.mode, "citations": self.citations, "locked": self.locked, "suggestions": self.suggestions}
+        meta = {"mode": self.mode, "citations": self.citations, "locked": self.locked, "suggestions": self.suggestions}
+        if self.fallback_reason:
+            meta["fallback"] = {"reason": self.fallback_reason, "message": REASONS[self.fallback_reason]}
+        return meta
 
 
 def _doc_card(doc: Document, snippet: str = "") -> dict:
@@ -72,14 +76,14 @@ def _retrieval_query(question: str, history: list[Message]) -> str:
     return f"{question} {previous}".strip()
 
 
-def _locked_hints(db: Session, view: AccessView, query: str, best_allowed: float) -> list[dict]:
+def _locked_hints(db: Session, view: AccessView, query: str) -> list[dict]:
     candidates = {
         doc_id for doc_id, doc in view.docs.items() if doc_id not in view.allowed and is_discoverable_to(view.user, doc)
     }
     if not candidates:
         return []
-    threshold = max(LOCKED_MIN_SCORE, 0.6 * best_allowed)
-    hits = [h for h in index.search(query, allowed_doc_ids=candidates, top_k=3) if h.score >= threshold]
+    # Title-only matching: hints must never reveal anything about a locked file's contents.
+    hits = [h for h in title_index.search(query, allowed_doc_ids=candidates, top_k=3) if h.score >= LOCKED_MIN_SCORE]
     if not hits:
         return []
     pending = set(
@@ -177,7 +181,6 @@ def respond(db: Session, user: User, question: str, history: list[Message]) -> R
     if hits:
         floor = RELEVANCE_FLOOR * hits[0].score
         hits = [h for h in hits if h.score >= floor]
-    best = hits[0].score if hits else 0.0
 
     suggestions: list[dict] = []
     extra_docs: list[Document] = []
@@ -186,7 +189,7 @@ def respond(db: Session, user: User, question: str, history: list[Message]) -> R
             suggestions.append({**_doc_card(rec.document), "why": "; ".join(rec.reasons)})
             extra_docs.append(rec.document)
 
-    locked = _locked_hints(db, view, query, best)
+    locked = _locked_hints(db, view, query)
 
     llm = get_llm()
     if llm is not None:
@@ -195,6 +198,7 @@ def respond(db: Session, user: User, question: str, history: list[Message]) -> R
         while messages and messages[0]["role"] != "user":
             messages.pop(0)  # the API expects the conversation to open with a user turn
         messages.append({"role": "user", "content": f"{context}\n\nQuestion: {question}"})
+        fallback: str | None = None
         try:
             content = llm.complete(_system_prompt(user), messages, max_tokens=settings.llm_max_tokens)
             cited = [int(i) for i in dict.fromkeys(CITATION.findall(content)) if int(i) in context_ids]
@@ -204,9 +208,14 @@ def respond(db: Session, user: User, question: str, history: list[Message]) -> R
             if not citations:
                 citations = [_doc_card(view.docs[h.doc_id]) for h in hits[:3]]
             return Reply(content, "ai", citations, locked, suggestions)
+        except LLMError as err:
+            fallback = err.reason
         except Exception:
-            log.exception("LLM call failed; answering in offline mode")
+            log.exception("Unexpected error from the language model; answering in offline mode")
+            fallback = "error"
+    else:
+        fallback = None
 
     content = _offline_answer(question, hits, view, suggestions, locked)
     citations = [_doc_card(view.docs[h.doc_id], best_snippet(" ".join(c.text for c in h.chunks), question)) for h in hits[:4]]
-    return Reply(content, "offline", citations, locked, suggestions)
+    return Reply(content, "offline", citations, locked, suggestions, fallback_reason=fallback)

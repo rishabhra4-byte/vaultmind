@@ -7,8 +7,10 @@ on:
 
 jobs:
   backend:
+    name: backend (${{ matrix.database }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         database: [sqlite, postgres]
     services:
@@ -31,9 +33,13 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements*.txt
       - run: pip install -r requirements-dev.txt
-      - run: ruff check app tests
-      - run: ruff format --check app tests
-      - name: pytest (${{ matrix.database }})
+      - name: Lint and format
+        run: |
+          ruff check app tests alembic
+          ruff format --check app tests alembic
+      - name: Known vulnerabilities in dependencies
+        run: pip install pip-audit && pip-audit -r requirements.txt
+      - name: Tests (${{ matrix.database }})
         run: |
           if [ "${{ matrix.database }}" = "postgres" ]; then
             export VAULTMIND_DATABASE_URL=postgresql+psycopg://vaultmind:vaultmind@localhost:5432/vaultmind_test
@@ -53,11 +59,138 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm run build
+      - name: Known vulnerabilities in dependencies
+        run: npm audit --audit-level=high
+      - name: Type check and build
+        run: npm run build
+      - name: No secrets in the bundle
+        run: |
+          if grep -rEl "sk-ant-|ANTHROPIC_API_KEY|JWT_SECRET" dist; then echo "Secret-like string found in the frontend bundle"; exit 1; fi
 
-  docker:
-    runs-on: ubuntu-latest
+  e2e:
+    name: e2e (${{ matrix.browser }})
     needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t vaultmind .
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            e2e/package-lock.json
+      - name: Build the app
+        run: |
+          pip install -r backend/requirements.txt
+          (cd frontend && npm ci && npm run build)
+          cp -r frontend/dist backend/static
+      - name: Start the server with fresh demo data
+        working-directory: backend
+        env:
+          VAULTMIND_SEED_DEMO_DATA: "true"
+        run: |
+          export VAULTMIND_JWT_SECRET=$(openssl rand -hex 32)
+          nohup python -m uvicorn app.main:app --port 8000 > server.log 2>&1 &
+          for i in $(seq 60); do curl -fs localhost:8000/api/ready && break; sleep 1; done
+          curl -fs localhost:8000/api/ready
+      - name: Install ${{ matrix.browser }}
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Browser audit (${{ matrix.browser }})
+        working-directory: e2e
+        run: BROWSER=${{ matrix.browser }} npm run audit
+      - name: Keep the evidence when it fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-${{ matrix.browser }}
+          path: |
+            e2e/report-*.json
+            e2e/shots/
+            backend/server.log
+
+  docker:
+    name: docker runtime
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure a demo deployment
+        run: |
+          echo "VAULTMIND_JWT_SECRET=$(openssl rand -hex 32)" > .env
+          echo "VAULTMIND_SEED_DEMO_DATA=true" >> .env
+      - name: Build the production image
+        run: docker compose build
+      - name: Production mode refuses to start without a secret
+        run: |
+          set +e
+          out=$(docker run --rm -e VAULTMIND_JWT_SECRET= vaultmind:local 2>&1); code=$?
+          set -e
+          echo "$out" | tail -3
+          test "$code" -ne 0
+          echo "$out" | grep -q "VAULTMIND_JWT_SECRET must be set"
+      - name: Start app and PostgreSQL
+        run: docker compose up -d
+      - name: Wait until the container reports healthy
+        run: |
+          for i in $(seq 60); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")
+            echo "health: $status"; [ "$status" = "healthy" ] && exit 0; sleep 3
+          done
+          docker compose logs app; exit 1
+      - name: Smoke-test the running container
+        run: bash e2e/docker-smoke.sh http://localhost:8000
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Full browser audit against the container (production mode, PostgreSQL)
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run audit
+      - name: Data survives a restart
+        run: |
+          docker compose restart app
+          for i in $(seq 60); do curl -fs localhost:8000/api/ready >/dev/null && break; sleep 2; done
+          bash e2e/docker-smoke.sh http://localhost:8000 --after-restart
+      - name: No errors in the application log
+        run: |
+          docker compose logs app > app.log
+          if grep -nE "Traceback|\bERROR\b|CRITICAL" app.log; then echo "Errors found in the app log"; exit 1; fi
+      - name: Graceful shutdown
+        run: |
+          docker compose stop -t 30 app
+          code=$(docker inspect -f '{{.State.ExitCode}}' "$(docker compose ps -aq app)")
+          docker compose logs app | tail -5
+          echo "exit code: $code"
+          # uvicorn shuts down cleanly, then re-raises SIGTERM, so 143 (128+15) is a graceful exit.
+          # 137 would mean Docker had to SIGKILL it after the grace period.
+          [ "$code" = "0" ] || [ "$code" = "143" ]
+          docker compose logs app | grep -q "Application shutdown complete"
+      - name: Keep the evidence when it fails
+        if: failure()
+        run: docker compose logs > compose.log 2>&1 || true
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-evidence
+          path: |
+            compose.log
+            app.log
+            e2e/report-*.json
+            e2e/shots/

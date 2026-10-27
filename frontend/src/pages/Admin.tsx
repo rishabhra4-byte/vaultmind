@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../api";
-import { Avatar, Empty, Skeleton, timeAgo } from "../components/bits";
+import { Avatar, Empty, Skeleton, timeAgo, usePageTitle } from "../components/bits";
 import { IconActivity, IconChat, IconFile, IconInbox, IconLock } from "../components/icons";
 import { useApp } from "../state";
 import type { AuditEvent, Classification, User } from "../types";
@@ -80,6 +80,7 @@ export default function Admin() {
   const [filter, setFilter] = useState("");
   const [users, setUsers] = useState<User[]>([]);
   const [barsReady, setBarsReady] = useState(false);
+  usePageTitle("Admin");
 
   useEffect(() => {
     api<Stats>("/api/admin/stats")
