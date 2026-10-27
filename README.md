@@ -98,7 +98,7 @@ Search follows the same rule. Content matching only ever runs over documents the
 
 **Backend:** Python 3.12, FastAPI, SQLAlchemy 2, Alembic, PostgreSQL (SQLite for local runs), JWT auth with bcrypt, Anthropic API, pypdf
 **Frontend:** React 18, TypeScript, Vite, React Router, with no UI framework, self-hosted fonts
-**Quality:** pytest (87 tests, on SQLite and PostgreSQL, plus 4 opt-in live Claude checks), a 274-check browser audit run in Chromium, Firefox and WebKit (Playwright + axe), an accessibility review, performance checks, Ruff, pip-audit and npm audit, and a CI job that tests the Docker image itself
+**Quality:** pytest (88 tests, on SQLite and PostgreSQL, plus 4 opt-in live Claude checks), a 274-check browser audit run in Chromium, Firefox and WebKit (Playwright + axe), an accessibility review, performance checks, Ruff, pip-audit and npm audit, and a CI job that tests the Docker image itself
 
 ## Run it
 
@@ -160,7 +160,7 @@ The Docker image runs in production mode. On top of the Quickest steps:
 
 ```bash
 cd backend
-pytest                 # 87 tests: policy rules, scanner, search, API flows, leakage, security, migrations, AI provider errors
+pytest                 # 88 tests: policy rules, scanner, search, API flows, leakage, security, migrations, AI provider errors
 ruff check app tests alembic && ruff format --check app tests alembic
 VAULTMIND_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/vaultmind_test pytest   # same suite on PostgreSQL
 ```

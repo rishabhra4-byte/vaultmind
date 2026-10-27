@@ -393,6 +393,15 @@ def test_deactivating_someone_ends_their_signed_in_session(client, login):
     assert again.status_code == 403
 
 
+def test_scanning_a_file_before_upload_never_sends_it_to_the_model(client, login, fake_llm):
+    body = b"Contractor payouts\n\nRavi Kumar, PAN ABCDE1234F, payout INR 85,000.\n"
+    r = client.post("/api/documents/scan", headers=login("rohan"), files={"file": ("payouts.txt", body, "text/plain")})
+    assert r.status_code == 200
+    assert fake_llm.calls == []  # nothing leaves the server until the person chooses to upload
+    assert r.json()["suggested_classification"] == "restricted"
+    assert "ABCDE1234F" not in r.json()["summary"]
+
+
 def test_rate_limiter_forgets_idle_keys():
     from app.deps import RateLimiter
 
