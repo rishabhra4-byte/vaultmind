@@ -49,8 +49,8 @@ export function NewVersionDialog({ doc, onClose, onDone }: { doc: DocDetail; onC
         }}
       >
         <p className="muted">
-          The new file replaces version {doc.version} of “{doc.title}”. Access settings stay the same, earlier versions are
-          kept, and people who read it recently get a summary of what changed.
+          The new file replaces version {doc.version} of “{doc.title}”. Access settings stay the same, earlier versions are kept,
+          and people who read it recently get a summary of what changed.
         </p>
         <button type="button" className="dropzone" onClick={() => inputRef.current?.click()}>
           <span className="dz-icon">

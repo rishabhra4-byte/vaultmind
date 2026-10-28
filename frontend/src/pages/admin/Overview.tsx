@@ -230,7 +230,11 @@ export default function Overview() {
                     <li key={s.id} className="source-health">
                       <Link to="/admin/sources">{s.name}</Link>{" "}
                       <span className={`status status-${s.overdue && s.status === "ok" ? "late" : s.status}`}>
-                        {!s.enabled ? "Paused" : s.overdue && s.status === "ok" ? "Behind schedule" : STATUS[s.status] ?? s.status}
+                        {!s.enabled
+                          ? "Paused"
+                          : s.overdue && s.status === "ok"
+                            ? "Behind schedule"
+                            : (STATUS[s.status] ?? s.status)}
                       </span>
                       <span className="muted small">
                         {s.documents} documents

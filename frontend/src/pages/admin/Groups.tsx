@@ -48,8 +48,8 @@ export default function Groups() {
         </button>
       </div>
       <p className="muted small section-note">
-        Groups cut across teams: share a document with a group and its members can open it (still subject to the
-        document's minimum position). Groups from Google or Microsoft are kept in sync and edited there.
+        Groups cut across teams: share a document with a group and its members can open it (still subject to the document's
+        minimum position). Groups from Google or Microsoft are kept in sync and edited there.
       </p>
       {groups === null ? (
         <Skeleton rows={3} />
@@ -142,7 +142,9 @@ function GroupDialog({
 
   const shown = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    return people.filter((p) => p.is_active && (!q || p.full_name.toLowerCase().includes(q) || p.team_name.toLowerCase().includes(q)));
+    return people.filter(
+      (p) => p.is_active && (!q || p.full_name.toLowerCase().includes(q) || p.team_name.toLowerCase().includes(q)),
+    );
   }, [people, filter]);
 
   async function submit(e: React.FormEvent) {
@@ -175,9 +177,7 @@ function GroupDialog({
           <input value={description} onChange={(e) => setDescription(e.target.value)} maxLength={255} />
         </label>
         <fieldset className="field">
-          <legend>
-            Members ({members.length})
-          </legend>
+          <legend>Members ({members.length})</legend>
           <label className="search-box">
             <IconSearch />
             <input

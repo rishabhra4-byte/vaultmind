@@ -47,8 +47,8 @@ export default function Glossary() {
         </button>
       </div>
       <p className="muted small section-note">
-        Words people use for the same thing. When someone asks about one, the assistant also searches for the others, so
-        “PTO” finds the Leave Policy. Add your team nicknames, product code names and acronyms.
+        Words people use for the same thing. When someone asks about one, the assistant also searches for the others, so “PTO”
+        finds the Leave Policy. Add your team nicknames, product code names and acronyms.
       </p>
       {terms === null ? (
         <Skeleton rows={3} />

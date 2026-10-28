@@ -42,8 +42,8 @@ export default function Teams() {
         </button>
       </div>
       <p className="muted small section-note">
-        Every person belongs to one team, and every document is owned by one. Teams can also come from your Google or
-        Microsoft directory (from people's department).
+        Every person belongs to one team, and every document is owned by one. Teams can also come from your Google or Microsoft
+        directory (from people's department).
       </p>
       {teams === null ? (
         <Skeleton rows={3} />

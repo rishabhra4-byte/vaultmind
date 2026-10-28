@@ -311,7 +311,7 @@ Statuses:
 | No memory leak over a long session | ✅ | `perf.js` soak |
 | Gzip and immutable caching of hashed assets | ✅ | `docker-smoke.sh` |
 | Load at company scale | ⚪ | D7 |
-| Route-level code splitting | ⚪ | Lighthouse estimates 41 KB of unused JavaScript on the landing page; worth doing before adding more pages |
+| Route-level code splitting | ✅ | Added on 28 October: the signed-in pages load on demand (section G3) |
 
 ### 9. Data and reliability
 
@@ -385,7 +385,7 @@ The features asked for after the audit: VaultMind now reads files where they alr
 
 | Suite | Where | Result |
 |---|---|---|
-| Backend: pytest, SQLite | Local, Python 3.13 | @@SQLITE@@ |
+| Backend: pytest, SQLite | Local, Python 3.13 | **167 passed**, 4 live tests skipped (193s) |
 | Backend: pytest, PostgreSQL 16 | Local, PostgreSQL 16 | **167 passed**, 4 live tests skipped (218s) |
 | Lint and format (`ruff check`, `ruff format --check`) | Local | **pass** |
 | `pip-audit -r requirements.txt` | Local | **No known vulnerabilities** |
@@ -393,8 +393,8 @@ The features asked for after the audit: VaultMind now reads files where they alr
 | TypeScript and production build | Local | **pass** |
 | Browser audit, Chromium 153 (`audit.js`) | Local | **434/434 checks passed, 0 console errors or failed requests.** The first run had 8 failures. Two were checks clicking the wrong citation. Six were a real bug: the people table made the page scroll sideways on phones, because text hidden for screen readers escaped its scrolling box. Both were fixed, then the whole audit was run again. |
 | Accessibility review (`a11y-review.js`) | Local, Chromium | **24/24 passed.** New checks cover focus moving into the notifications and "Ask about this document" panels and back to the button on Esc, focus kept inside the "Connect a source" dialog, accessible names on every admin page, and focus never hidden on the admin pages |
-| Performance (`perf.js`) | Local, Chromium | @@PERF@@ |
-| CI on the merge to `main` (backend ×2, frontend, Chromium, Firefox, WebKit, Docker) | GitHub Actions | @@CI@@ |
+| Performance (`perf.js`) | Local, Chromium | Slow 3G, first visit: homepage first paint **2.7s**, 134 KB, layout shift 0.056; sign-in **3.0s**, 112 KB, layout shift **0**. Memory soak: heap grew **0 MB** over 40 rounds, DOM nodes (605) and listeners (201) unchanged. The new pages first made the homepage slower (3.2s, 161 KB), so the signed-in pages now load on demand: the first download for visitors went from 100 KB to 71 KB of compressed JavaScript |
+| CI on the pull request and the merge to `main` (backend ×2, frontend, Chromium, Firefox, WebKit, Docker) | GitHub Actions | Running at the time of this commit; the results are added below once they finish |
 
 New backend test files: `test_foundation.py` (groups, mirrored sharing, versions, notifications), `test_connectors.py` (shared folder, Google Drive, Microsoft 365, directory sync, scheduling), `test_sso.py`, `test_delivery.py` (reminders, email and Slack copies, the scheduler), `test_assistant_plus.py` (paragraph citations, one-document questions, compare, what changed, glossary, AI controls, masking, actions), `test_proactive.py` (the Slack app, the first-week checklist, notification settings) and `test_admin_tools.py` (people, import, teams, groups, insights). The browser audit gained checks for every new screen and flow, and its sweep covers the document panel, the notifications panel and four admin pages at eight widths in both themes.
 

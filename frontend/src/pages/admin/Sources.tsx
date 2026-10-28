@@ -43,7 +43,9 @@ export default function Sources() {
     () =>
       api<SourcesResponse>("/api/admin/sources")
         .then(setData)
-        .catch(() => setData({ sources: [], available: { folder: false, google_drive: false, microsoft_365: false }, folder_roots: [] })),
+        .catch(() =>
+          setData({ sources: [], available: { folder: false, google_drive: false, microsoft_365: false }, folder_roots: [] }),
+        ),
     [],
   );
   useEffect(() => {
@@ -100,8 +102,8 @@ export default function Sources() {
         </button>
       </div>
       <p className="muted small section-note">
-        Where company files live. VaultMind reads them on a schedule; files are never changed in the source. Google and
-        Microsoft files can keep exactly the sharing they have there.
+        Where company files live. VaultMind reads them on a schedule; files are never changed in the source. Google and Microsoft
+        files can keep exactly the sharing they have there.
       </p>
       {data === null ? (
         <Skeleton rows={2} />
@@ -120,7 +122,7 @@ export default function Sources() {
                     <strong>{s.name}</strong>
                     <span className="pill">{s.label}</span>
                     <span className={`status status-${s.enabled ? s.status : "paused"}`}>
-                      {s.enabled ? STATUS[s.status] ?? s.status : "Paused"}
+                      {s.enabled ? (STATUS[s.status] ?? s.status) : "Paused"}
                     </span>
                   </div>
                   <p className="muted small">
@@ -157,7 +159,9 @@ export default function Sources() {
                         <input
                           type="checkbox"
                           checked={s.enabled}
-                          onChange={(e) => patch(s, { enabled: e.target.checked }, e.target.checked ? "Syncing resumed" : "Syncing paused")}
+                          onChange={(e) =>
+                            patch(s, { enabled: e.target.checked }, e.target.checked ? "Syncing resumed" : "Syncing paused")
+                          }
                           aria-label={`Sync ${s.name}`}
                         />
                         <span />
@@ -191,7 +195,11 @@ export default function Sources() {
                   <button className="btn small" onClick={() => setEditing(s)}>
                     Settings
                   </button>
-                  <button className="btn small ghost danger-text" onClick={() => setRemoving(s)} aria-label={`Disconnect ${s.name}`}>
+                  <button
+                    className="btn small ghost danger-text"
+                    onClick={() => setRemoving(s)}
+                    aria-label={`Disconnect ${s.name}`}
+                  >
                     <IconTrash width={14} height={14} />
                   </button>
                 </div>
@@ -216,8 +224,8 @@ export default function Sources() {
         <Modal title={`Disconnect ${removing.name}?`} onClose={() => setRemoving(null)}>
           <div className="stack">
             <p className="muted">
-              Its {removing.document_count} documents are removed from VaultMind. The files themselves stay where they are
-              in {removing.label}.
+              Its {removing.document_count} documents are removed from VaultMind. The files themselves stay where they are in{" "}
+              {removing.label}.
             </p>
             <div className="row end">
               <button className="btn ghost" onClick={() => setRemoving(null)}>
@@ -260,9 +268,7 @@ function SourceDialog({
   const [interval, setIntervalMinutes] = useState(source?.sync_interval_minutes ?? 60);
   const [path, setPath] = useState(String(config.path ?? roots[0] ?? ""));
   const [folders, setFolders] = useState(((config.folders as string[]) ?? []).join("\n"));
-  const [where, setWhere] = useState<"site" | "user" | "drive">(
-    config.user_email ? "user" : config.drive_id ? "drive" : "site",
-  );
+  const [where, setWhere] = useState<"site" | "user" | "drive">(config.user_email ? "user" : config.drive_id ? "drive" : "site");
   const [siteUrl, setSiteUrl] = useState(String(config.site_url ?? ""));
   const [library, setLibrary] = useState(String(config.library ?? "Documents"));
   const [userEmail, setUserEmail] = useState(String(config.user_email ?? ""));
@@ -343,7 +349,13 @@ function SourceDialog({
         )}
         <label className="field">
           <span>Name</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} placeholder="e.g. Company shared drive" />
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            maxLength={120}
+            placeholder="e.g. Company shared drive"
+          />
         </label>
 
         {kind === "folder" && (
@@ -464,8 +476,8 @@ function SourceDialog({
           <fieldset className="field">
             <legend>Folder rules</legend>
             <small className="muted">
-              Files in a folder get that folder's team and classification; the longest matching folder wins. The scanner
-              can still raise a classification when it finds sensitive data.
+              Files in a folder get that folder's team and classification; the longest matching folder wins. The scanner can still
+              raise a classification when it finds sensitive data.
             </small>
             {rules.map((r, i) => (
               <div key={i} className="rule-row">

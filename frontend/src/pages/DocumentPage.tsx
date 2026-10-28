@@ -217,7 +217,9 @@ export default function DocumentPage() {
         <aside className="doc-aside">
           <section>
             <div className={`access-badge ${access.allowed ? "" : "no"}`}>
-              <span className="dot">{access.allowed ? <IconShield width={16} height={16} /> : <IconLock width={16} height={16} />}</span>
+              <span className="dot">
+                {access.allowed ? <IconShield width={16} height={16} /> : <IconLock width={16} height={16} />}
+              </span>
               {access.allowed ? "You can open this" : "No access"}
             </div>
             <p className="muted small">{access.reason}</p>
@@ -443,9 +445,7 @@ function AccessSettings({ doc, onSaved }: { doc: DocDetail; onSaved: () => void 
                 <input
                   type="checkbox"
                   checked={groupShares.includes(g.id)}
-                  onChange={(e) =>
-                    setGroupShares((s) => (e.target.checked ? [...s, g.id] : s.filter((x) => x !== g.id)))
-                  }
+                  onChange={(e) => setGroupShares((s) => (e.target.checked ? [...s, g.id] : s.filter((x) => x !== g.id)))}
                 />
                 {g.name}
               </label>

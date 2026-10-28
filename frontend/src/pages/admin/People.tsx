@@ -38,7 +38,8 @@ export default function People() {
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (users ?? []).filter(
-      (u) => !q || u.full_name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.team_name.toLowerCase().includes(q),
+      (u) =>
+        !q || u.full_name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.team_name.toLowerCase().includes(q),
     );
   }, [users, query]);
 
@@ -58,8 +59,8 @@ export default function People() {
         </div>
       </div>
       <p className="muted small section-note">
-        Changing someone's team or position changes what they can open immediately. People synced from Google or Microsoft
-        are updated at each sync.
+        Changing someone's team or position changes what they can open immediately. People synced from Google or Microsoft are
+        updated at each sync.
       </p>
       <label className="search-box admin-search">
         <IconSearch />
@@ -410,7 +411,8 @@ interface ImportResult {
   rows: { row: number; email: string; action: string; detail: string }[];
 }
 
-const TEMPLATE = "email,name,title,team,position,admin\npriya.n@example.com,Priya Nair,Backend Engineer,Engineering,Associate,no\n";
+const TEMPLATE =
+  "email,name,title,team,position,admin\npriya.n@example.com,Priya Nair,Backend Engineer,Engineering,Associate,no\n";
 
 function ImportPeople({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const { notify } = useApp();
@@ -454,8 +456,8 @@ function ImportPeople({ onClose, onDone }: { onClose: () => void; onDone: () => 
     <Modal title="Import people from a spreadsheet" onClose={onClose}>
       <div className="stack">
         <p className="muted">
-          Save the sheet as CSV with the columns <code>email, name, title, team, position, admin</code>. New people sign in
-          with their company account; existing people are updated. Nothing changes until you press Import.{" "}
+          Save the sheet as CSV with the columns <code>email, name, title, team, position, admin</code>. New people sign in with
+          their company account; existing people are updated. Nothing changes until you press Import.{" "}
           <button className="link-btn" onClick={downloadTemplate}>
             <u>Download a template</u>
           </button>
@@ -495,8 +497,8 @@ function ImportPeople({ onClose, onDone }: { onClose: () => void; onDone: () => 
         {preview && (
           <div className="import-preview">
             <p>
-              <strong>{preview.created}</strong> to add, <strong>{preview.updated}</strong> to update,{" "}
-              {preview.unchanged} unchanged
+              <strong>{preview.created}</strong> to add, <strong>{preview.updated}</strong> to update, {preview.unchanged}{" "}
+              unchanged
               {preview.errors > 0 && (
                 <>
                   , <strong className="danger-text">{preview.errors} with problems</strong>
