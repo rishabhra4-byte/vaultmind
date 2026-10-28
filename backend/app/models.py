@@ -14,14 +14,20 @@ User ──< Conversation ──< Message   assistant chat history
 User ──< AssistantAction            things the assistant offered to do, done only once confirmed
 User ──< Notification               in-app notices, also sent by email or Slack when set up
 User ──< UserIdentity               the person's id at Google, Microsoft or Slack
+User ──< UserSession                every sign-in, so it can be ended (sign-out, password change, admin)
 GlossaryTerm                        company vocabulary used to widen searches
-AuditEvent                          append-only activity log
+AuditEvent                          append-only activity log, hash-chained (AuditChain holds the head)
+AiRequest                           what was sent to the AI service: which documents and passages
+Setting                             company policies admins set in the app (retention, AI limits...)
+LegalHold ──< LegalHoldItem         people and documents whose data must not be deleted
+FindingDecision                     access-review findings an admin accepted as a known risk
+BackupRecord                        backups made, and whether each one restored cleanly
 """
 
 from datetime import UTC, datetime
 from enum import IntEnum, StrEnum
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -64,6 +70,14 @@ DEFAULT_MIN_POSITION: dict[Classification, Position] = {
 class AclMode(StrEnum):
     NATIVE = "native"  # VaultMind's rules: team, position, classification (uploads, folder sources)
     MIRROR = "mirror"  # the source system's own sharing, copied at every sync (Drive, Microsoft 365)
+
+
+class DocumentState(StrEnum):
+    ACTIVE = "active"
+    # Hidden from everyone but administrators while it's looked into (from the access review).
+    QUARANTINED = "quarantined"
+    # Deleted, here or in its source, but kept (hidden) because a legal hold covers it.
+    ARCHIVED = "archived"
 
 
 class SourceKind(StrEnum):
@@ -113,9 +127,31 @@ class User(Base):
     notify_email: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     # Kept up to date by a directory sync (Google Workspace / Microsoft 365) rather than by hand.
     directory_managed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # Read-only access to the compliance pages (access review, reports, audit log). It never
+    # opens documents: auditors see who can open what, not what's inside.
+    is_auditor: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
 
     team: Mapped[Team] = relationship(back_populates="members")
     memberships: Mapped[list["GroupMember"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+
+class UserSession(Base):
+    """One signed-in browser. The token carries a random id; only its SHA-256 is stored here,
+    so a copy of the database can't be used to sign in as anyone."""
+
+    __tablename__ = "user_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # sha256 of the token's session id
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    method: Mapped[str] = mapped_column(String(20), default="password")  # password | google | microsoft
+    ip: Mapped[str] = mapped_column(String(64), default="")
+    user_agent: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    # signed_out | password_changed | deactivated | role_changed | ended_by_admin | ended_by_user | emergency | idle
+    end_reason: Mapped[str] = mapped_column(String(40), default="")
 
 
 class UserIdentity(Base):
@@ -180,7 +216,12 @@ class Source(Base):
     sync_interval_minutes: Mapped[int] = mapped_column(Integer, default=60)
     status: Mapped[str] = mapped_column(String(20), default="idle")  # idle | syncing | ok | error
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The last sync that read the whole file list (and so refreshed every file's sharing).
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str] = mapped_column(Text, default="")
+    # Emergency switch: every file from this source is closed to everyone but admins.
+    paused: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    paused_reason: Mapped[str] = mapped_column(String(255), default="", server_default="")
     stats: Mapped[dict] = mapped_column(JSON, default=dict)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -230,6 +271,12 @@ class Document(Base):
     # Whether the AI model may read this document's text (search and opening still work).
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    state: Mapped[str] = mapped_column(String(20), default=DocumentState.ACTIVE, server_default="active", index=True)
+    state_reason: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    # Mirrored files: when the sync last read this file's sharing from its source. When that's
+    # too long ago (the source is unreachable, credentials expired), `sharing_stale` closes it.
+    permissions_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sharing_stale: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
 
     owner_team: Mapped[Team] = relationship()
     uploader: Mapped[User | None] = relationship()
@@ -451,5 +498,119 @@ class AuditEvent(Base):
     target_id: Mapped[int | None] = mapped_column(Integer)
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    # Hash chain: each event's hash covers its content and the previous event's hash, so an
+    # edited, deleted or reordered event breaks every hash after it (see audit.verify_chain).
+    seq: Mapped[int | None] = mapped_column(Integer, unique=True)
+    prev_hash: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    hash: Mapped[str] = mapped_column(String(64), default="", server_default="")
 
     actor: Mapped[User | None] = relationship()
+
+
+class AuditChain(Base):
+    """The head of the audit hash chain (one row). Appends lock it, so the chain never forks."""
+
+    __tablename__ = "audit_chain"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    seq: Mapped[int] = mapped_column(Integer, default=0)  # last sequence number handed out
+    head: Mapped[str] = mapped_column(String(64))  # hash of that event
+    # Where the retained chain starts after old events were purged by the retention policy.
+    base_seq: Mapped[int] = mapped_column(Integer, default=0)
+    base_hash: Mapped[str] = mapped_column(String(64))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_ok: Mapped[bool | None] = mapped_column(Boolean)
+    verified_detail: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class AiRequest(Base):
+    """One call to the AI service: what it was for and which documents' text went with it.
+
+    The text itself isn't kept, only which documents and passages, so the record says what
+    left the company without becoming another copy of it.
+    """
+
+    __tablename__ = "ai_requests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    # answer | document_answer | compare | changes | draft | summary | change_summary | search_rewrite
+    purpose: Mapped[str] = mapped_column(String(30))
+    model: Mapped[str] = mapped_column(String(120), default="")
+    endpoint: Mapped[str] = mapped_column(String(255), default="")  # the AI service's host
+    # [{"id", "title", "classification", "source_id", "passages": [ordinals] | null for whole text}]
+    documents: Mapped[list] = mapped_column(JSON, default=list)
+    chars: Mapped[int] = mapped_column(Integer, default=0)
+    masked: Mapped[int] = mapped_column(Integer, default=0)  # identifiers replaced before sending
+    outcome: Mapped[str] = mapped_column(String(40), default="ok")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class Setting(Base):
+    """A company policy set from the compliance pages (see policies.py for the list)."""
+
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String(60), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON, default=dict)  # {"value": ...}
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class LegalHold(Base):
+    """Keep everything about some people or documents, whatever the retention rules say."""
+
+    __tablename__ = "legal_holds"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))  # e.g. the matter or case name
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    released_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    items: Mapped[list["LegalHoldItem"]] = relationship(back_populates="hold", cascade="all, delete-orphan")
+
+
+class LegalHoldItem(Base):
+    __tablename__ = "legal_hold_items"
+    __table_args__ = (UniqueConstraint("hold_id", "kind", "target_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hold_id: Mapped[int] = mapped_column(ForeignKey("legal_holds.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # user | document
+    target_id: Mapped[int] = mapped_column(Integer, index=True)
+
+    hold: Mapped[LegalHold] = relationship(back_populates="items")
+
+
+class FindingDecision(Base):
+    """An access-review finding an admin looked at and accepted, with why, until when."""
+
+    __tablename__ = "finding_decisions"
+
+    key: Mapped[str] = mapped_column(String(120), primary_key=True)  # e.g. "grant_without_expiry:grant:5"
+    note: Mapped[str] = mapped_column(Text, default="")
+    review_by: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    decided_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class BackupRecord(Base):
+    __tablename__ = "backups"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    filename: Mapped[str] = mapped_column(String(255), default="")
+    trigger: Mapped[str] = mapped_column(String(20), default="schedule")  # schedule | manual | command
+    status: Mapped[str] = mapped_column(String(20), default="running")  # running | ok | failed
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    size: Mapped[int] = mapped_column(BigInteger, default=0)
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    encrypted: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The restore check: the backup restored into a scratch database and compared row by row.
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_ok: Mapped[bool | None] = mapped_column(Boolean)
+    detail: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))

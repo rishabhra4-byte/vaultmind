@@ -13,11 +13,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import audit
+from .. import audit, sessions
 from ..database import get_db
-from ..deps import admin_user, current_user
-from ..models import Document, Group, GroupMember, Position, Source, Team, User
-from ..schemas import TeamOut, UserOut, UTCDatetime
+from ..deps import admin_user, auditor_user, current_user
+from ..models import AuditEvent, Document, Group, GroupMember, Position, Source, Team, User, UserSession
+from ..schemas import SessionOut, TeamOut, UserOut, UTCDatetime
 from ..security import hash_password
 
 router = APIRouter(prefix="/api", tags=["directory"])
@@ -39,9 +39,28 @@ class AdminUserOut(UserOut):
     notify_email: bool
     groups: list[str]
     created_at: UTCDatetime
+    open_sessions: int = 0
+    last_sign_in_at: UTCDatetime | None = None
 
 
-def _admin_out(u: User) -> AdminUserOut:
+def _activity(db: Session, user_ids: list[int] | None = None) -> tuple[dict[int, int], dict[int, datetime]]:
+    """Open sessions and last sign-in per person."""
+    open_by_user: dict[int, int] = {}
+    stmt = select(UserSession.user_id, UserSession.expires_at, UserSession.last_seen_at).where(UserSession.ended_at.is_(None))
+    if user_ids is not None:
+        stmt = stmt.where(UserSession.user_id.in_(user_ids))
+    now = datetime.now(UTC)
+    for uid, expires, _seen in db.execute(stmt):
+        if sessions.aware(expires) > now:
+            open_by_user[uid] = open_by_user.get(uid, 0) + 1
+    last_stmt = select(AuditEvent.actor_id, func.max(AuditEvent.created_at)).where(AuditEvent.action == "auth.login")
+    if user_ids is not None:
+        last_stmt = last_stmt.where(AuditEvent.actor_id.in_(user_ids))
+    last = {uid: when for uid, when in db.execute(last_stmt.group_by(AuditEvent.actor_id)) if uid is not None}
+    return open_by_user, last
+
+
+def _admin_out(u: User, open_sessions: int = 0, last_sign_in: datetime | None = None) -> AdminUserOut:
     until = u.onboarding_until
     if until is not None and until.tzinfo is None:
         until = until.replace(tzinfo=UTC)
@@ -54,7 +73,14 @@ def _admin_out(u: User) -> AdminUserOut:
         notify_email=u.notify_email,
         groups=sorted(m.group.name for m in u.memberships),
         created_at=u.created_at,
+        open_sessions=open_sessions,
+        last_sign_in_at=last_sign_in,
     )
+
+
+def _one_out(db: Session, u: User) -> AdminUserOut:
+    open_by_user, last = _activity(db, [u.id])
+    return _admin_out(u, open_by_user.get(u.id, 0), last.get(u.id))
 
 
 class UserIn(BaseModel):
@@ -64,6 +90,7 @@ class UserIn(BaseModel):
     team_id: int
     position: int = Field(Position.ASSOCIATE, ge=Position.INTERN, le=Position.EXECUTIVE)
     is_admin: bool = False
+    is_auditor: bool = False
     password: str | None = Field(None, min_length=8, max_length=256)  # leave out for company sign-in only
     onboarding: bool = True
 
@@ -75,13 +102,18 @@ class UserUpdate(BaseModel):
     title: str | None = Field(None, max_length=120)
     is_active: bool | None = None
     is_admin: bool | None = None
+    is_auditor: bool | None = None
     onboarding: bool | None = None
     password: str | None = Field(None, min_length=8, max_length=256)
 
 
 @router.get("/admin/users", response_model=list[AdminUserOut])
-def users(_: User = Depends(admin_user), db: Session = Depends(get_db)):
-    return [_admin_out(u) for u in db.scalars(select(User).order_by(User.team_id, User.position.desc(), User.full_name))]
+def users(_: User = Depends(auditor_user), db: Session = Depends(get_db)):
+    open_by_user, last = _activity(db)
+    return [
+        _admin_out(u, open_by_user.get(u.id, 0), last.get(u.id))
+        for u in db.scalars(select(User).order_by(User.team_id, User.position.desc(), User.full_name))
+    ]
 
 
 @router.post("/admin/users", response_model=AdminUserOut, status_code=status.HTTP_201_CREATED)
@@ -98,16 +130,29 @@ def create_user(body: UserIn, admin: User = Depends(admin_user), db: Session = D
         team_id=body.team_id,
         position=body.position,
         is_admin=body.is_admin,
+        is_auditor=body.is_auditor,
         password_hash=hash_password(body.password) if body.password else NO_PASSWORD,
         auth_provider="password" if body.password else "sso",
         onboarding_until=datetime.now(UTC) + timedelta(days=ONBOARDING_DAYS) if body.onboarding else None,
     )
     db.add(user)
     db.flush()
-    audit.record(db, admin, "user.create", "user", user.id, name=user.full_name, email=email, is_admin=body.is_admin)
+    audit.record(
+        db,
+        admin,
+        "user.create",
+        "user",
+        user.id,
+        name=user.full_name,
+        email=email,
+        team=db.get(Team, body.team_id).name,
+        position=Position(body.position).label,
+        is_admin=body.is_admin,
+        is_auditor=body.is_auditor,
+    )
     db.commit()
     db.refresh(user)
-    return _admin_out(user)
+    return _one_out(db, user)
 
 
 @router.patch("/admin/users/{user_id}", response_model=AdminUserOut)
@@ -122,6 +167,7 @@ def update_user(user_id: int, body: UserUpdate, admin: User = Depends(admin_user
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unknown team")
     logged = {k: v for k, v in changes.items() if k != "password"}
     before = {k: getattr(target, k) for k in logged if hasattr(target, k) and k != "onboarding"}
+    end_reason = None
     for key, value in changes.items():
         if key == "onboarding":
             target.onboarding_until = datetime.now(UTC) + timedelta(days=ONBOARDING_DAYS) if value else None
@@ -129,14 +175,40 @@ def update_user(user_id: int, body: UserUpdate, admin: User = Depends(admin_user
             if value:
                 target.password_hash = hash_password(value)
                 logged["password"] = "reset"
+                end_reason = end_reason or "password_changed"
         elif key == "full_name":
             target.full_name = value.strip()
         else:
+            if key == "is_active" and value is False and target.is_active:
+                end_reason = "deactivated"
+            elif key in ("is_admin", "is_auditor") and value is False and getattr(target, key):
+                end_reason = end_reason or "role_changed"
             setattr(target, key, value)
     audit.record(db, admin, "user.update", "user", target.id, name=target.full_name, before=before, after=logged)
+    if end_reason:
+        # A reset password, a deactivation or a removed role ends every session at once.
+        sessions.end_all(db, target.id, end_reason, actor=admin)
     db.commit()
     db.refresh(target)
-    return _admin_out(target)
+    return _one_out(db, target)
+
+
+@router.get("/admin/users/{user_id}/sessions", response_model=list[SessionOut])
+def user_sessions(user_id: int, _: User = Depends(auditor_user), db: Session = Depends(get_db)):
+    if db.get(User, user_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    return [SessionOut.of(s) for s in sessions.open_sessions(db, user_id)]
+
+
+@router.post("/admin/users/{user_id}/sessions/end")
+def end_user_sessions(user_id: int, admin: User = Depends(admin_user), db: Session = Depends(get_db)):
+    """Sign someone out everywhere (for example a lost laptop)."""
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    ended = sessions.end_all(db, target.id, "ended_by_admin", actor=admin)
+    db.commit()
+    return {"ended": ended}
 
 
 class ImportRow(BaseModel):
@@ -208,6 +280,7 @@ async def import_users(
     new_teams: list[str] = []
     rows: list[ImportRow] = []
     seen: set[str] = set()
+    changed: list[dict] = []  # for the audit log: who got which new team, position or role
     for n, raw in enumerate(reader, start=2):
         if n - 1 > MAX_IMPORT_ROWS:
             raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"Up to {MAX_IMPORT_ROWS} people per file")
@@ -275,8 +348,11 @@ async def import_users(
                 continue
             rows.append(ImportRow(row=n, email=email, action="update", detail=", ".join(sorted(changes))))
             if not dry_run:
+                changed.append({"email": email, **{k: v for k, v in changes.items() if k != "full_name"}})
                 for k, v in changes.items():
                     setattr(existing, k, v)
+                if changes.get("is_admin") is False:
+                    sessions.end_all(db, existing.id, "role_changed", actor=admin)
         except ValueError as exc:
             rows.append(ImportRow(row=n, email=email or "(none)", action="error", detail=str(exc)))
 
@@ -285,7 +361,18 @@ async def import_users(
         if count["error"]:
             db.rollback()
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Fix the rows with errors first (run a preview)")
-        audit.record(db, admin, "user.import", "user", None, created=count["create"], updated=count["update"], teams=new_teams)
+        audit.record(
+            db,
+            admin,
+            "user.import",
+            "user",
+            None,
+            created=count["create"],
+            updated=count["update"],
+            teams=new_teams,
+            new_people=[r.email for r in rows if r.action == "create"][:200],
+            changes=changed[:200],
+        )
         db.commit()
     return ImportOut(
         dry_run=dry_run,

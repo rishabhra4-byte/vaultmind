@@ -129,13 +129,25 @@ def redact_for_ai(text: str) -> str:
     Names, emails and phone numbers stay: "who do I contact?" is one of the most common
     questions, and the person asking can open the document anyway.
     """
+    return mask_for_ai(text)[0]
+
+
+def mask_for_ai(text: str) -> tuple[str, int]:
+    """`redact_for_ai`, also counting how many identifiers were masked (for the AI data record)."""
+    count = 0
     for det in DETECTORS:
         if det.level != Classification.RESTRICTED:
             continue
-        text = det.pattern.sub(
-            lambda m, d=det: f"[{d.label.lower()} removed]" if not d.validate or d.validate(m.group(0)) else m.group(0), text
-        )
-    return text
+
+        def swap(m: re.Match, d: Detector = det) -> str:
+            nonlocal count
+            if d.validate and not d.validate(m.group(0)):
+                return m.group(0)
+            count += 1
+            return f"[{d.label.lower()} removed]"
+
+        text = det.pattern.sub(swap, text)
+    return text, count
 
 
 def redact(text: str) -> str:

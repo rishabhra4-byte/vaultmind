@@ -48,6 +48,7 @@ from .models import (
 from .notify import notify
 from .sensitivity import floor_for_flags, rank, scan
 from .services import ingest_document, remove_document, replace_content, safe_external_url, set_principals
+from .sessions import end_all
 from .text import extractive_summary
 
 log = logging.getLogger(__name__)
@@ -240,6 +241,7 @@ def sync_directory(db: Session, provider: str, source: Source, users: list[Direc
             if any(getattr(user, k) != v for k, v in changes.items()):
                 if changes.get("is_active") is False and user.is_active:
                     stats["deactivated"] += 1
+                    end_all(db, user.id, "deactivated")
                 for k, v in changes.items():
                     setattr(user, k, v)
                 stats["updated"] += 1
@@ -256,6 +258,7 @@ def sync_directory(db: Session, provider: str, source: Source, users: list[Direc
         if user.id not in seen and not user.is_admin:
             user.is_active = False
             stats["deactivated"] += 1
+            end_all(db, user.id, "deactivated")
 
     by_email = {u.email.lower(): u.id for u in people.values()}
     for dg in groups:

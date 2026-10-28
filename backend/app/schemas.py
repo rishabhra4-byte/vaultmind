@@ -30,6 +30,7 @@ class UserOut(ORM):
     position_label: str
     is_admin: bool
     is_active: bool
+    is_auditor: bool = False
 
     @classmethod
     def of(cls, u) -> "UserOut":
@@ -44,6 +45,35 @@ class UserOut(ORM):
             position_label=Position(u.position).label,
             is_admin=u.is_admin,
             is_active=u.is_active,
+            is_auditor=bool(u.is_auditor),
+        )
+
+
+class SessionOut(BaseModel):
+    """A signed-in browser, for "your sessions" and an admin's view of someone's sessions."""
+
+    id: str
+    method: str  # password | google | microsoft
+    device: str  # "Chrome on Windows"
+    ip: str
+    created_at: UTCDatetime
+    last_seen_at: UTCDatetime
+    expires_at: UTCDatetime
+    current: bool = False
+
+    @classmethod
+    def of(cls, s, current_id: str | None = None) -> "SessionOut":
+        from .sessions import describe_agent
+
+        return cls(
+            id=s.id,
+            method=s.method,
+            device=describe_agent(s.user_agent),
+            ip=s.ip,
+            created_at=s.created_at,
+            last_seen_at=s.last_seen_at,
+            expires_at=s.expires_at,
+            current=s.id == current_id,
         )
 
 

@@ -92,6 +92,9 @@ def set_password(email: str, password: str) -> User:
         if user is None:
             raise ValueError(f"There is no account for {email}.")
         user.password_hash = hash_password(password)
+        from .sessions import end_all
+
+        end_all(db, user.id, "password_changed")  # anyone signed in with the old password is signed out
         db.commit()
         db.refresh(user)
         return user

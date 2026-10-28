@@ -117,7 +117,12 @@ def reset_llm() -> None:
 
 
 def get_llm() -> LLM | None:
+    """The AI client, or None for offline answers: no key set, or an admin stopped AI processing."""
     global _cached
+    from .policies import get as policy
+
+    if policy("ai_paused"):
+        return None
     if _override_set:
         return _override
     if _cached is None:
