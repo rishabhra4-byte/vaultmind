@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { useApp } from "../state";
@@ -15,10 +15,13 @@ export function ActionCard({
   action,
   onChange,
   compact = false,
+  autoFocus = false,
 }: {
   action: AssistantAction;
   onChange: (a: AssistantAction) => void;
   compact?: boolean;
+  /** Move focus into the card: it was opened by the person, not offered with an answer. */
+  autoFocus?: boolean;
 }) {
   const { notify } = useApp();
   const p = action.payload;
@@ -29,6 +32,12 @@ export function ActionCard({
   const [body, setBody] = useState(p.body ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // A card the person opened may appear below the fold of the conversation: bring it into view.
+  useEffect(() => {
+    if (autoFocus) formRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [autoFocus]);
 
   if (action.status === "dismissed") return null;
   if (action.status === "done") {
@@ -118,6 +127,7 @@ export function ActionCard({
   if (action.kind === "save_summary") {
     return (
       <form
+        ref={formRef}
         className="action-card"
         onSubmit={(e) => {
           e.preventDefault();
@@ -129,7 +139,7 @@ export function ActionCard({
         </div>
         <label className="field">
           <span>Title</span>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={200} />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={200} autoFocus={autoFocus} />
         </label>
         <p className="muted small">Only you (and admins) can open it until you share it from its page.</p>
         {error && <p className="error">{error}</p>}
@@ -182,6 +192,7 @@ export function ActionCard({
   // request_access
   return (
     <form
+      ref={formRef}
       className="action-card"
       onSubmit={(e) => {
         e.preventDefault();
@@ -190,7 +201,15 @@ export function ActionCard({
     >
       <label className="field">
         <span>Why do you need “{p.title}”?</span>
-        <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} minLength={10} maxLength={1000} required />
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          rows={3}
+          minLength={10}
+          maxLength={1000}
+          required
+          autoFocus={autoFocus}
+        />
       </label>
       <label className="field inline-field">
         <span>For</span>

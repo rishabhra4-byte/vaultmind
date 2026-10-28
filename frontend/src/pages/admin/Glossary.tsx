@@ -38,7 +38,7 @@ export default function Glossary() {
   const builtin = terms?.filter((t) => t.builtin) ?? [];
   return (
     <section>
-      <div className="row between wrap section-head">
+      <div className="row between wrap admin-head">
         <h2>
           <IconBook /> Glossary
         </h2>

@@ -33,7 +33,7 @@ export default function Teams() {
 
   return (
     <section>
-      <div className="row between wrap section-head">
+      <div className="row between wrap admin-head">
         <h2>
           <IconUsers /> Teams
         </h2>

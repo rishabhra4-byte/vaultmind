@@ -91,7 +91,7 @@ export default function Sources() {
 
   return (
     <section>
-      <div className="row between wrap section-head">
+      <div className="row between wrap admin-head">
         <h2>
           <IconCloud /> Sources
         </h2>

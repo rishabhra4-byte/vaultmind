@@ -3814,13 +3814,14 @@ button.dropzone {
   background: var(--primary-solid);
   color: #fff;
 }
-.section-head {
+.admin-head {
   margin-bottom: 8px;
 }
-.section-head h2 {
+.admin-head h2 {
   display: flex;
   align-items: center;
   gap: 8px;
+  font-size: 1.25rem;
 }
 .section-note {
   max-width: 78ch;
@@ -4044,5 +4045,22 @@ button.dropzone {
   }
   .rule-row {
     grid-template-columns: 1fr 1fr;
+  }
+}
+.source-form fieldset > .btn.small {
+  justify-self: start;
+}
+.msg.compact .msg-tools {
+  flex-wrap: wrap;
+}
+.msg.compact .answer-label {
+  flex-basis: 100%;
+}
+@media (min-width: 1280px) {
+  .page.with-drawer .doc-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .page.with-drawer .doc-aside {
+    display: none;
   }
 }

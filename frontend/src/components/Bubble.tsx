@@ -47,6 +47,7 @@ export function Bubble({
   const [shown, done] = useTypewriter(message.content, animate && message.role === "assistant");
   const [asking, setAsking] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [opened, setOpened] = useState<number | null>(null); // an action card the person opened themselves
   const titles = useMemo(() => {
     const t = new Map<number, string>();
     for (const c of [...(meta.citations ?? []), ...(meta.suggestions ?? [])]) t.set(c.id, c.title);
@@ -97,6 +98,7 @@ export function Bubble({
         method: "POST",
         json: { kind: "save_summary", message_id: message.id },
       });
+      setOpened(action.id);
       updateAction(action);
     } catch (err) {
       notify(err instanceof ApiError ? err.message : "Couldn't start saving", "error");
@@ -214,7 +216,7 @@ export function Bubble({
                     )}
                   </div>
                   {action && asking === l.id && action.status === "proposed" && (
-                    <ActionCard action={action} onChange={updateAction} compact={compact} />
+                    <ActionCard action={action} onChange={updateAction} compact={compact} autoFocus />
                   )}
                 </div>
               );
@@ -222,7 +224,10 @@ export function Bubble({
           </div>
         )}
 
-        {done && otherActions.map((a) => <ActionCard key={a.id} action={a} onChange={updateAction} compact={compact} />)}
+        {done &&
+          otherActions.map((a) => (
+            <ActionCard key={a.id} action={a} onChange={updateAction} compact={compact} autoFocus={a.id === opened} />
+          ))}
 
         {done && meta.search && (meta.search.expanded?.length || meta.search.rewritten) && (
           <p className="search-note">

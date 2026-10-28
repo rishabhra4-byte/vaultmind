@@ -39,7 +39,7 @@ export default function Groups() {
   const byId = new Map(people.map((p) => [p.id, p]));
   return (
     <section>
-      <div className="row between wrap section-head">
+      <div className="row between wrap admin-head">
         <h2>
           <IconUsers /> Groups
         </h2>

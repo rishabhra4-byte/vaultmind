@@ -65,7 +65,7 @@ export default function Activity() {
 
   return (
     <section>
-      <div className="row between wrap section-head">
+      <div className="row between wrap admin-head">
         <h2>
           <IconActivity /> Activity
         </h2>

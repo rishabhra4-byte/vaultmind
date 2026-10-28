@@ -340,6 +340,7 @@ function FirstWeek() {
     setData(await api<Onboarding>("/api/onboarding/dismiss", { method: "POST" }));
   }
   const pct = Math.round((data.done / data.total) * 100);
+  const next = data.steps.find((s) => !s.done)?.id;
   return (
     <section className="first-week" aria-label="Your first week">
       <div className="row between">
@@ -362,7 +363,7 @@ function FirstWeek() {
             <span>
               {s.link && !s.done ? <Link to={s.link}>{s.label}</Link> : s.label}
               <span className="sr-only">{s.done ? " (done)" : " (to do)"}</span>
-              {s.hint && !s.done && <span className="muted small step-hint">{s.hint}</span>}
+              {s.hint && s.id === next && <span className="muted small step-hint">{s.hint}</span>}
             </span>
           </li>
         ))}
