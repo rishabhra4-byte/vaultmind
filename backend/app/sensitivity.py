@@ -72,7 +72,17 @@ DETECTORS = [
     Detector(
         "confidential_marker",
         "Marked confidential",
-        re.compile(r"(?i)\b(?:strictly confidential|confidential|do not distribute|internal only|under nda)\b"),
+        # A document marking itself, not the word in passing: "so nothing confidential sits in
+        # the printer tray" once made the office Wi-Fi guide Confidential (found by the benchmark).
+        re.compile(
+            r"(?im)(?:\b(?:strictly confidential|do not distribute|internal only|under nda|marked confidential)\b"
+            r"|\(\s*confidential\b[^)\n]*\)"  # "(confidential)", "(confidential, board use)"
+            r"|^#+[^\n]*\bconfidential\b"  # a heading that says so
+            r"|^\s*confidential\s*(?:[:\u2013\u2014-]|$)"  # "Confidential: ..." as a label
+            r"|\b(?:this|the)\s+(?:document|file|report|page|information|contents?)\s+(?:is|are)\s+(?:strictly\s+)?confidential\b"
+            r"|\bclassification\s*:\s*confidential\b"
+            r"|(?-i:\bCONFIDENTIAL\b))"
+        ),
         Classification.CONFIDENTIAL,
     ),
     Detector("phone", "Phone number", re.compile(r"(?<!\d)(?:\+91[ -]?)?[6-9]\d{4}[ -]?\d{5}(?!\d)"), Classification.INTERNAL),
