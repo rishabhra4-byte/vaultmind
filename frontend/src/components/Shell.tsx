@@ -4,6 +4,7 @@ import { useApp } from "../state";
 import { ThemeToggle } from "../theme";
 import { Avatar, Ladder } from "./bits";
 import CommandPalette from "./CommandPalette";
+import { NotificationBell } from "./NotificationBell";
 import { IconChat, IconInbox, IconLibrary, IconLogout, IconSearch, IconShield, IconSparkle } from "./icons";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -59,6 +60,7 @@ export default function Shell() {
               </span>
             )}
           </NavLink>
+          <NotificationBell />
           {user.is_admin && (
             <NavLink to="/admin">
               <IconShield />

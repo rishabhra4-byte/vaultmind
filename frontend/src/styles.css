@@ -3229,3 +3229,40 @@ a.btn.primary {
     display: none; /* the hero's own call to action is right below */
   }
 }
+
+/* ---------- company sign-in ---------- */
+
+.sso-buttons {
+  display: grid;
+  gap: 10px;
+}
+.sso-btn {
+  width: 100%;
+  padding: 12px 18px;
+  text-decoration: none;
+  color: var(--ink);
+}
+.or-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.82rem;
+  color: var(--ink-3);
+}
+.or-divider::before,
+.or-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.admin-signin > summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  padding: 4px 0;
+}
+.admin-signin[open] > summary {
+  margin-bottom: 12px;
+}

@@ -3,10 +3,11 @@ import { Link } from "react-router-dom";
 
 export type CiteMap = Map<number, { n: number; title: string }>;
 
-/** Number citations in order of first appearance, so markers match the sources list. */
+/** Number citations in order of first appearance, so markers match the sources list. One number
+ * per document; a citation of a paragraph ([D12.3]) links straight to that paragraph. */
 export function numberCitations(text: string, titles: Map<number, string>): CiteMap {
   const map: CiteMap = new Map();
-  for (const m of text.matchAll(/\[D(\d+)\]/g)) {
+  for (const m of text.matchAll(/\[D(\d+)(?:\.\d+)?\]/g)) {
     const id = Number(m[1]);
     if (!map.has(id)) map.set(id, { n: map.size + 1, title: titles.get(id) ?? `Document ${id}` });
   }
@@ -15,7 +16,7 @@ export function numberCitations(text: string, titles: Map<number, string>): Cite
 
 /**
  * A small, safe renderer for the assistant's replies: paragraphs, bullet lists, **bold**,
- * `code`, and [D12] citations rendered as numbered links. It builds React elements rather
+ * `code`, and [D12] / [D12.3] citations rendered as numbered links. It builds React elements rather
  * than injecting HTML, so document text can never run script in the page.
  */
 export function RichText({ text, cites, headingLevel = 3 }: { text: string; cites: CiteMap; headingLevel?: number }) {
@@ -63,15 +64,23 @@ export function RichText({ text, cites, headingLevel = 3 }: { text: string; cite
 }
 
 function inline(text: string, cites: CiteMap): ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*|`[^`]+`|\s?\[D\d+\])/g).map((part, i) => {
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`|\s?\[D\d+(?:\.\d+)?\])/g).map((part, i) => {
     if (part.startsWith("**") && part.endsWith("**")) return <strong key={i}>{part.slice(2, -2)}</strong>;
     if (part.startsWith("`") && part.endsWith("`")) return <code key={i}>{part.slice(1, -1)}</code>;
-    const cite = part.match(/^\s?\[D(\d+)\]$/);
+    const cite = part.match(/^\s?\[D(\d+)(?:\.(\d+))?\]$/);
     if (cite) {
       const id = Number(cite[1]);
       const c = cites.get(id);
+      const paragraph = cite[2] !== undefined ? Number(cite[2]) : null;
+      const where = paragraph !== null ? `, paragraph ${paragraph + 1}` : "";
       return (
-        <Link key={i} to={`/library/${id}`} className="cite" title={c?.title} aria-label={`Source: ${c?.title}`}>
+        <Link
+          key={i}
+          to={`/library/${id}${paragraph !== null ? `#p${paragraph}` : ""}`}
+          className="cite"
+          title={`${c?.title ?? "Source"}${where}`}
+          aria-label={`Source: ${c?.title ?? "document"}${where}`}
+        >
           {c?.n ?? "•"}
         </Link>
       );

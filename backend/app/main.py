@@ -13,9 +13,11 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from .config import get_settings
 from .database import SessionLocal, engine
 from .migrations import upgrade_database
-from .routers import access, admin, assistant, auth, documents
+from .routers import access, admin, assistant, auth, directory, documents, glossary, me, notifications, slack, sources
+from .scheduler import Scheduler
 from .seed import seed
 from .services import rebuild_index
+from .sync import reset_stuck_syncs
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("vaultmind")
@@ -47,9 +49,15 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         if settings.demo_enabled and seed(db):
             log.info("Seeded demo company data")
+        reset_stuck_syncs(db)
         log.info("Search index built with %d documents", rebuild_index(db))
+    scheduler = Scheduler() if settings.scheduler_enabled else None
+    if scheduler:
+        scheduler.start()
     yield
     log.info("Shutting down")
+    if scheduler:
+        scheduler.stop()
     engine.dispose()
 
 
@@ -137,7 +145,19 @@ async def security_headers(request: Request, call_next):
     return response
 
 
-for r in (auth.router, documents.router, assistant.router, access.router, admin.router):
+for r in (
+    auth.router,
+    documents.router,
+    assistant.router,
+    access.router,
+    admin.router,
+    notifications.router,
+    sources.router,
+    glossary.router,
+    slack.router,
+    me.router,
+    directory.router,
+):
     app.include_router(r)
 
 

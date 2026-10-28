@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/app ./app
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini .
+COPY backend/demo_drive ./demo_drive
 COPY --from=web /web/dist ./static
 
 RUN useradd --create-home vaultmind && mkdir -p /data && chown vaultmind /data

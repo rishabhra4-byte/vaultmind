@@ -54,6 +54,90 @@ class Settings(BaseSettings):
     # None = follow the environment: on in development, off in production.
     seed_demo_data: bool | None = None
 
+    # The address people use to reach VaultMind, e.g. https://vaultmind.example.com. Used for
+    # links in emails and Slack messages, and for the sign-in redirect with Google/Microsoft.
+    public_url: str = ""
+
+    # Background jobs: syncing connected sources, reminders, email/Slack delivery.
+    scheduler_enabled: bool = True
+    connector_timeout_seconds: float = 30.0
+
+    # Shared-folder connector: the only folders (and their subfolders) an admin may connect.
+    folder_roots: list[str] = []
+
+    # Google Workspace: a service account with domain-wide delegation reads Drive files, their
+    # sharing and (optionally) the directory, acting as `google_admin_email`.
+    google_service_account_file: str = ""
+    google_service_account_json: str = ""
+    google_admin_email: str = ""
+    google_api_base: str = "https://www.googleapis.com"
+    google_admin_api_base: str = "https://admin.googleapis.com"
+    google_token_url: str = "https://oauth2.googleapis.com/token"
+
+    # Microsoft 365: an app registration (client credentials) with Files.Read.All / Sites.Read.All
+    # and, for directory sync, User.Read.All + GroupMember.Read.All application permissions.
+    microsoft_tenant_id: str = ""
+    microsoft_client_id: str = ""
+    microsoft_client_secret: str = ""
+    microsoft_graph_base: str = "https://graph.microsoft.com/v1.0"
+    microsoft_login_base: str = "https://login.microsoftonline.com"
+
+    # Sign in with Google / Microsoft (OpenID Connect). Google needs an OAuth client (not the
+    # service account); Microsoft reuses the app registration above, with a redirect URI added.
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_issuer: str = "https://accounts.google.com"
+    # Company domains whose Google accounts may sign in (and get an account on first sign-in).
+    google_allowed_domains: list[str] = []
+    microsoft_sso: bool = False  # turn on to show "Continue with Microsoft"
+    # Create an account the first time someone from an allowed domain / the tenant signs in.
+    sso_auto_create: bool = True
+    sso_default_team: str = ""  # team for people created at sign-in (default: the first team)
+    # Turn off once everyone signs in with their company account. Admins keep password
+    # sign-in as a break-glass route in case the identity provider is down.
+    password_login: bool = True
+
+    # Email copies of notifications (optional).
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_starttls: bool = True
+
+    # Slack: the bot (slash command, mentions, direct messages) and notification copies.
+    slack_bot_token: str = ""
+    slack_signing_secret: str = ""
+    slack_api_base: str = "https://slack.com/api"
+
+    @property
+    def email_configured(self) -> bool:
+        return bool(self.smtp_host and self.smtp_from)
+
+    @property
+    def slack_configured(self) -> bool:
+        return bool(self.slack_bot_token and self.slack_signing_secret)
+
+    def link(self, path: str) -> str:
+        """An absolute link to a page, for emails and Slack (relative if the public URL isn't set)."""
+        return f"{self.public_url.rstrip('/')}{path}" if self.public_url else path
+
+    @property
+    def google_sso_configured(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret)
+
+    @property
+    def microsoft_sso_configured(self) -> bool:
+        return self.microsoft_sso and self.microsoft_configured
+
+    @property
+    def google_configured(self) -> bool:
+        return bool((self.google_service_account_file or self.google_service_account_json) and self.google_admin_email)
+
+    @property
+    def microsoft_configured(self) -> bool:
+        return bool(self.microsoft_tenant_id and self.microsoft_client_id and self.microsoft_client_secret)
+
     @property
     def is_production(self) -> bool:
         return self.env == "production"

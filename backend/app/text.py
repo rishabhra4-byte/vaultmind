@@ -96,6 +96,22 @@ def extractive_summary(text: str, max_sentences: int = 2, max_chars: int = 320) 
     return summary if len(summary) <= max_chars else summary[: max_chars - 1].rsplit(" ", 1)[0] + "…"
 
 
+def key_points(passages: list[tuple[int, str]], limit: int = 5) -> list[tuple[int, str]]:
+    """The sentences that carry a document's main terms, in reading order, with their passage number."""
+    found = [(ordinal, s) for ordinal, text in passages for s in sentences(text)]
+    if not found:
+        return []
+    freq = Counter(t for _, s in found for t in tokenize(s))
+    scored = []
+    for i, (ordinal, s) in enumerate(found):
+        toks = tokenize(s)
+        if len(toks) < 4 or len(s) > 400:
+            continue
+        scored.append((sum(freq[t] for t in set(toks)) / (len(toks) ** 0.5), i, ordinal, s))
+    best = sorted(sorted(scored, reverse=True)[:limit], key=lambda x: x[1])
+    return [(ordinal, s) for _, _, ordinal, s in best]
+
+
 def best_snippet(text: str, query: str, max_chars: int = 260) -> str:
     """The sentence (plus a neighbour) that best matches the query.
 

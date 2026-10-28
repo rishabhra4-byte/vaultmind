@@ -29,6 +29,7 @@ class ChunkHit:
     doc_id: int
     score: float
     text: str
+    ordinal: int = 0  # position of the passage in its document, for citing a paragraph
 
 
 @dataclass
@@ -45,6 +46,7 @@ class BM25Index:
         self._chunk_len: dict[int, int] = {}
         self._chunk_doc: dict[int, int] = {}
         self._chunk_text: dict[int, str] = {}
+        self._chunk_ordinal: dict[int, int] = {}
         self._chunk_terms: dict[int, list[str]] = {}
         self._doc_chunks: dict[int, list[int]] = defaultdict(list)
         self._total_len = 0
@@ -56,11 +58,16 @@ class BM25Index:
         with self._lock:
             self.__init__()
 
-    def add_document(self, doc_id: int, title: str, tags: Iterable[str], chunks: Iterable[tuple[int, str]]) -> None:
+    def add_document(
+        self, doc_id: int, title: str, tags: Iterable[str], chunks: Iterable[tuple[int, str] | tuple[int, str, int]]
+    ) -> None:
+        """`chunks` are (chunk_id, text) or (chunk_id, text, ordinal) pairs."""
         header = tokenize(" ".join([title, *tags])) * TITLE_WEIGHT
         with self._lock:
             self.remove_document(doc_id)
-            for chunk_id, text in chunks:
+            for i, chunk in enumerate(chunks):
+                chunk_id, text = chunk[0], chunk[1]
+                self._chunk_ordinal[chunk_id] = chunk[2] if len(chunk) > 2 else i
                 terms = tokenize(text) + header
                 counts = Counter(terms)
                 for term, tf in counts.items():
@@ -78,6 +85,7 @@ class BM25Index:
                 self._total_len -= self._chunk_len.pop(chunk_id, 0)
                 self._chunk_doc.pop(chunk_id, None)
                 self._chunk_text.pop(chunk_id, None)
+                self._chunk_ordinal.pop(chunk_id, None)
                 for term in self._chunk_terms.pop(chunk_id, []):
                     posting = self._postings.get(term)
                     if posting is not None:
@@ -116,7 +124,9 @@ class BM25Index:
             by_doc: dict[int, list[ChunkHit]] = defaultdict(list)
             for chunk_id, score in scores.items():
                 doc_id = self._chunk_doc[chunk_id]
-                by_doc[doc_id].append(ChunkHit(chunk_id, doc_id, score, self._chunk_text[chunk_id]))
+                by_doc[doc_id].append(
+                    ChunkHit(chunk_id, doc_id, score, self._chunk_text[chunk_id], self._chunk_ordinal.get(chunk_id, 0))
+                )
 
         results = []
         for doc_id, hits in by_doc.items():

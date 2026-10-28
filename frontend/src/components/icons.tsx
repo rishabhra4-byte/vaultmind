@@ -187,3 +187,80 @@ export const IconTrash = (p: P) => (
     <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
   </Svg>
 );
+
+export const IconBell = (p: P) => (
+  <Svg {...p}>
+    <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+    <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+  </Svg>
+);
+
+export const IconHistory = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+    <path d="M3 3v5h5M12 7v5l3 2" />
+  </Svg>
+);
+
+export const IconColumns = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M12 4v16" />
+  </Svg>
+);
+
+export const IconCloud = (p: P) => (
+  <Svg {...p}>
+    <path d="M17.5 19H7a5 5 0 1 1 1.1-9.9A6 6 0 0 1 19.6 11 4 4 0 0 1 17.5 19z" />
+  </Svg>
+);
+
+export const IconRefresh = (p: P) => (
+  <Svg {...p}>
+    <path d="M21 12a9 9 0 0 1-15.5 6.2L3 16" />
+    <path d="M3 12a9 9 0 0 1 15.5-6.2L21 8" />
+    <path d="M21 3v5h-5M3 21v-5h5" />
+  </Svg>
+);
+
+export const IconBook = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z" />
+    <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5" />
+  </Svg>
+);
+
+export const IconExternal = (p: P) => (
+  <Svg {...p}>
+    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    <path d="M15 3h6v6M10 14 21 3" />
+  </Svg>
+);
+
+export const IconSave = (p: P) => (
+  <Svg {...p}>
+    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+    <path d="M17 21v-8H7v8M7 3v5h8" />
+  </Svg>
+);
+
+export const IconMail = (p: P) => (
+  <Svg {...p}>
+    <rect x="2" y="4" width="20" height="16" rx="2" />
+    <path d="m22 6-10 7L2 6" />
+  </Svg>
+);
+
+export const IconChart = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 3v18h18" />
+    <path d="M7 15l4-4 3 3 5-6" />
+  </Svg>
+);
+
+export const IconChecklist = (p: P) => (
+  <Svg {...p}>
+    <path d="M11 6h10M11 12h10M11 18h10" />
+    <path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17" />
+  </Svg>
+);

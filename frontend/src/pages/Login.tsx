@@ -1,8 +1,9 @@
 import { useState, type CSSProperties } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api";
 import { Avatar, ClassTag, Ladder, teamColor, usePageTitle } from "../components/bits";
 import { IconLock, IconSparkle } from "../components/icons";
+import { safeNext, ssoErrorMessage } from "../signin";
 import { useApp } from "../state";
 import { ThemeToggle } from "../theme";
 
@@ -14,6 +15,8 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [params] = useSearchParams();
+  const next = safeNext(params.get("next"));
   usePageTitle("Sign in");
 
   async function go(e: string, p: string) {
@@ -26,6 +29,41 @@ export default function Login() {
       setBusy(null);
     }
   }
+
+  const providers = meta?.sso_providers ?? [];
+  const ssoError = ssoErrorMessage(params.get("sso_error"), meta?.company ?? "your company");
+  const passwordForm = (
+    <form
+      className="stack"
+      onSubmit={(e) => {
+        e.preventDefault();
+        go(email, password);
+      }}
+    >
+      <label className="field">
+        <span>Work email</span>
+        <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
+      </label>
+      <label className="field">
+        <span>Password</span>
+        <input
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+      </label>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <button className="btn primary" disabled={!!busy}>
+        {busy === email ? "Signing in…" : "Sign in"}
+      </button>
+    </form>
+  );
 
   // Everything below depends on the metadata (company name, the legend, the demo people), so the
   // page appears once it has arrived, in its final layout, instead of jumping as parts load in.
@@ -104,37 +142,43 @@ export default function Login() {
       </section>
 
       <section className="login-panel">
-        <form
-          className="card stack"
-          onSubmit={(e) => {
-            e.preventDefault();
-            go(email, password);
-          }}
-        >
+        <div className="card stack">
           <h2>Sign in</h2>
-          <label className="field">
-            <span>Work email</span>
-            <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          </label>
-          <label className="field">
-            <span>Password</span>
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </label>
-          {error && (
+          {ssoError && (
             <p className="error" role="alert">
-              {error}
+              {ssoError}
             </p>
           )}
-          <button className="btn primary" disabled={!!busy}>
-            {busy === email ? "Signing in…" : "Sign in"}
-          </button>
-        </form>
+          {providers.length > 0 && (
+            <div className="sso-buttons">
+              {providers.map((p) => (
+                <a
+                  key={p.id}
+                  className="btn sso-btn"
+                  href={`/api/auth/sso/${encodeURIComponent(p.id)}/start?next=${encodeURIComponent(next)}`}
+                >
+                  Continue with {p.label}
+                </a>
+              ))}
+            </div>
+          )}
+          {passwordForm &&
+            (meta?.password_login === false ? (
+              <details className="admin-signin">
+                <summary>Administrator sign-in</summary>
+                {passwordForm}
+              </details>
+            ) : (
+              <>
+                {providers.length > 0 && (
+                  <div className="or-divider" role="separator">
+                    <span>or use your password</span>
+                  </div>
+                )}
+                {passwordForm}
+              </>
+            ))}
+        </div>
 
         {meta && meta.demo_users.length > 0 && (
           <div className="personas">

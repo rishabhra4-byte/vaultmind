@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api";
-import { ClassTag, RequestAccessDialog, teamColor, usePageTitle } from "../components/bits";
+import { RequestAccessDialog, teamColor, usePageTitle } from "../components/bits";
+import { Bubble } from "../components/Bubble";
 import {
+  IconCheck,
+  IconChecklist,
   IconCoins,
   IconCompass,
-  IconCopy,
   IconFile,
-  IconLock,
   IconPlus,
   IconSend,
   IconSiren,
@@ -15,9 +16,8 @@ import {
   IconSun,
   IconTrash,
 } from "../components/icons";
-import { numberCitations, RichText } from "../components/RichText";
 import { useApp } from "../state";
-import type { Conversation, LockedHint, Message, Recommendation } from "../types";
+import type { Conversation, LockedHint, Message, Onboarding, Recommendation } from "../types";
 
 interface Starter {
   text: string;
@@ -41,20 +41,6 @@ function starterPrompts(position: number): Starter[] {
         salary,
         { text: "What's in the engineering hiring plan?", icon: <IconFile />, color: "#ec4899" },
       ];
-}
-
-const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-
-/** Reveal text progressively, like it's being typed, finishing in about a second and a half. */
-function useTypewriter(text: string, enabled: boolean): [string, boolean] {
-  const [count, setCount] = useState(enabled && !prefersReducedMotion() ? 0 : text.length);
-  useEffect(() => {
-    if (count >= text.length) return;
-    const step = Math.max(3, Math.ceil(text.length / 90));
-    const t = setTimeout(() => setCount((c) => Math.min(text.length, c + step)), 16);
-    return () => clearTimeout(t);
-  }, [count, text.length]);
-  return [text.slice(0, count), count >= text.length];
 }
 
 export default function Assistant() {
@@ -176,6 +162,12 @@ export default function Assistant() {
           {conversations.map((c) => (
             <li key={c.id} className={c.id === conversationId ? "active" : ""}>
               <button className="thread" onClick={() => open(c.id)} title={c.title}>
+                {c.document_id && (
+                  <>
+                    <IconFile width={13} height={13} className="thread-doc" />
+                    <span className="sr-only">About a document: </span>
+                  </>
+                )}
                 {c.title}
               </button>
               <button className="icon-btn subtle" onClick={() => remove(c.id)} aria-label={`Delete “${c.title}”`}>
@@ -201,6 +193,7 @@ export default function Assistant() {
                 I search the documents you can open as {/^[aeiou]/i.test(user.position_label) ? "an" : "a"}{" "}
                 {user.position_label} in {user.team_name}, and tell you when something exists that you'd need access for.
               </p>
+              <FirstWeek />
               <div className="starters">
                 {starterPrompts(user.position).map((s) => (
                   <button
@@ -217,7 +210,13 @@ export default function Assistant() {
             </div>
           ) : (
             messages.map((m) => (
-              <Bubble key={m.id} message={m} animate={m.id === freshId} onRequest={setRequesting} />
+              <Bubble
+                key={m.id}
+                message={m}
+                animate={m.id === freshId}
+                onRequest={setRequesting}
+                onUpdate={(updated) => setMessages((ms) => ms.map((x) => (x.id === updated.id ? updated : x)))}
+              />
             ))
           )}
           {sending && (
@@ -328,129 +327,49 @@ export default function Assistant() {
   );
 }
 
-function Bubble({
-  message,
-  animate,
-  onRequest,
-}: {
-  message: Message;
-  animate: boolean;
-  onRequest: (l: LockedHint) => void;
-}) {
-  const { notify } = useApp();
-  const { meta } = message;
-  const [shown, done] = useTypewriter(message.content, animate && message.role === "assistant");
-  const titles = useMemo(() => {
-    const t = new Map<number, string>();
-    for (const c of [...(meta.citations ?? []), ...(meta.suggestions ?? [])]) t.set(c.id, c.title);
-    return t;
-  }, [meta]);
-  const cites = useMemo(() => numberCitations(message.content, titles), [message.content, titles]);
-
-  if (message.role === "user") {
-    return (
-      <div className="msg msg-user">
-        <p>
-          <span className="sr-only">You asked: </span>
-          {message.content}
-        </p>
-      </div>
-    );
+/** The new joiner's first-week checklist; it ticks itself off as they use VaultMind. */
+function FirstWeek() {
+  const [data, setData] = useState<Onboarding | null>(null);
+  useEffect(() => {
+    api<Onboarding>("/api/onboarding")
+      .then(setData)
+      .catch(() => setData(null));
+  }, []);
+  if (!data?.active || data.total === 0) return null;
+  async function dismiss() {
+    setData(await api<Onboarding>("/api/onboarding/dismiss", { method: "POST" }));
   }
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(message.content.replace(/\s?\[D\d+\]/g, "").replace(/\*\*/g, ""));
-      notify("Answer copied");
-    } catch {
-      notify("Couldn't copy. Select the text instead.", "error");
-    }
-  }
-
-  const sources = [...cites.entries()].map(([id, c]) => ({ id, ...c, card: meta.citations?.find((x) => x.id === id) }));
+  const pct = Math.round((data.done / data.total) * 100);
   return (
-    <div className="msg msg-assistant-row" aria-busy={!done}>
-      <span className="bot-avatar">
-        <IconSparkle />
-      </span>
-      <div className="msg-assistant">
-        <span className="sr-only">VaultMind answered: </span>
-        {meta.fallback && <p className="fallback-note">{meta.fallback.message}</p>}
-        <div>
-          <RichText text={shown} cites={cites} />
-          {!done && <span className="caret" aria-hidden />}
-        </div>
-
-        {done && sources.length > 0 && (
-          <ol className="sources" aria-label="Sources">
-            {sources.map((s) => (
-              <li key={s.id}>
-                <Link
-                  to={`/library/${s.id}`}
-                  className={`source ${s.card ? `class-edge-${s.card.classification}` : ""}`}
-                  title={s.card ? `${s.card.team}, ${s.card.classification}` : undefined}
-                >
-                  <span className="source-n">{s.n}</span>
-                  {s.title}
-                </Link>
-              </li>
-            ))}
-          </ol>
-        )}
-
-        {done && meta.mode === "ai" && meta.suggestions && meta.suggestions.length > 0 && cites.size === 0 && (
-          <ul className="sources">
-            {meta.suggestions.map((s) => (
-              <li key={s.id}>
-                <Link to={`/library/${s.id}`} className={`source class-edge-${s.classification}`}>
-                  <span className="source-n">
-                    <IconFile width={12} height={12} />
-                  </span>
-                  {s.title}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {done && meta.locked && meta.locked.length > 0 && (
-          <div className="sealed-list">
-            {meta.locked.map((l) => (
-              <div key={l.id} className={`sealed class-edge-${l.classification}`}>
-                <div className="sealed-main">
-                  <span className="doc-icon">
-                    <IconLock />
-                  </span>
-                  <div>
-                    <div className="sealed-title">
-                      {l.title} <ClassTag value={l.classification} />
-                    </div>
-                    <div className="sealed-reason">{l.reason}</div>
-                  </div>
-                </div>
-                {l.request_pending ? (
-                  <span className="pill pending">Request pending</span>
-                ) : (
-                  <button className="btn small primary" onClick={() => onRequest(l)} aria-label={`Request access to ${l.title}`}>
-                    Request access
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {done && (
-          <div className="msg-tools">
-            <span className={`answer-label ${meta.mode === "ai" ? "ai" : ""}`}>
-              {meta.mode === "ai" ? "Written by Claude from documents you can open" : "Offline answer: matching passages, no AI"}
-            </span>
-            <button className="icon-btn" onClick={copy} aria-label="Copy answer">
-              <IconCopy width={14} height={14} /> Copy
-            </button>
-          </div>
-        )}
+    <section className="first-week" aria-label="Your first week">
+      <div className="row between">
+        <h2>
+          <IconChecklist /> Your first week
+        </h2>
+        <span className="muted small">
+          {data.done} of {data.total} done
+        </span>
       </div>
-    </div>
+      <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Progress">
+        <span style={{ width: `${pct}%` }} />
+      </div>
+      <ul>
+        {data.steps.map((s) => (
+          <li key={s.id} className={s.done ? "done" : ""}>
+            <span className="tick" aria-hidden>
+              {s.done && <IconCheck width={12} height={12} />}
+            </span>
+            <span>
+              {s.link && !s.done ? <Link to={s.link}>{s.label}</Link> : s.label}
+              <span className="sr-only">{s.done ? " (done)" : " (to do)"}</span>
+              {s.hint && !s.done && <span className="muted small step-hint">{s.hint}</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <button className="link-btn small" onClick={dismiss}>
+        {data.done === data.total ? "All done. Hide this" : "Hide this checklist"}
+      </button>
+    </section>
   );
 }

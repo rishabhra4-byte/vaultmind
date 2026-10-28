@@ -7,6 +7,7 @@ empty and VAULTMIND_SEED_DEMO_DATA is true (the default).
 import random
 import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -17,17 +18,37 @@ from .models import (
     AuditEvent,
     Classification,
     Document,
+    DocumentGroupShare,
+    DocumentVersion,
+    Group,
+    GroupMember,
     Position,
     RequestStatus,
+    Source,
+    SourceKind,
     Team,
     User,
 )
+from .notify import notify
 from .security import hash_password
-from .services import ingest_document
+from .services import ingest_document, replace_content
 from .text import extractive_summary
 
 DEMO_PASSWORD = "demo1234"
 DOMAIN = "northwind.example"
+# A folder of sample files that the demo connects as a "shared drive", to show syncing.
+DEMO_DRIVE = Path(__file__).resolve().parent.parent / "demo_drive"
+DEMO_DRIVE_RULES = [
+    {"prefix": "Company", "team": "Human Resources", "classification": "public"},
+    {"prefix": "Engineering", "team": "Engineering", "classification": "internal"},
+    {"prefix": "Sales", "team": "Sales", "classification": "internal"},
+    {"prefix": "HR", "team": "Human Resources", "classification": "internal"},
+]
+# The expense policy's previous version, so "what changed" has something to show.
+EXPENSE_V1_EDITS = [
+    ("INR 7,000 per night in metro cities", "INR 6,000 per night in metro cities"),
+    ("up to INR 1,500 per day", "up to INR 1,200 per day"),
+]
 
 TEAMS = [
     ("Engineering", "Builds and runs the Northwind platform"),
@@ -97,11 +118,15 @@ def seed(db: Session) -> bool:
     docs: dict[str, Document] = {}
     for spec in DOCS:
         cls: Classification = spec["cls"]
+        body = spec["body"]
+        if spec["title"] == "Expense Reimbursement Policy":
+            for new, old in EXPENSE_V1_EDITS:
+                body = body.replace(new, old)
         result = ingest_document(
             db,
             uploader=users[spec["uploader"]],
             filename=_slug(spec["title"]),
-            data=spec["body"].encode(),
+            data=body.encode(),
             mime_type="text/markdown",
             title=spec["title"],
             owner_team_id=teams[spec["team"]].id,
@@ -113,6 +138,8 @@ def seed(db: Session) -> bool:
         )
         doc = result.document
         doc.created_at = doc.updated_at = now - timedelta(days=spec["age"], hours=rng.randint(0, 20))
+        db.flush()
+        db.query(DocumentVersion).filter_by(document_id=doc.id).update({"created_at": doc.created_at})
         docs[doc.title] = doc
 
     events = []
@@ -186,6 +213,63 @@ def seed(db: Session) -> bool:
         )
     )
     db.add_all(events)
+    db.flush()
+
+    # A cross-team project group, with a Finance document shared with it.
+    squad = Group(name="Payments squad", description="Engineering and Finance, building the new payments flow")
+    squad.members = [GroupMember(user_id=users[k].id) for k in ("priya", "rohan", "ananya")]
+    db.add(squad)
+    db.flush()
+    db.add(DocumentGroupShare(document_id=docs["Vendor Payment Process"].id, group_id=squad.id))
+
+    # Version 2 of the expense policy: readers (Karan) are told what changed.
+    expense = docs["Expense Reimbursement Policy"]
+    spec = next(d for d in DOCS if d["title"] == expense.title)
+    change = replace_content(
+        db, expense, data=spec["body"].encode(), filename=expense.filename, actor=users["ananya"], ai_summary=False
+    )
+    two_days_ago = now - timedelta(days=2)
+    expense.updated_at = change.version.created_at = two_days_ago
+    expense.summary = spec["summary"]
+
+    # Approvers hear about the pending requests; Aarav is new, so he gets a first-week checklist.
+    for req in db.query(AccessRequest).filter_by(status=RequestStatus.PENDING):
+        doc = db.get(Document, req.document_id)
+        approvers = [
+            u.id
+            for u in users.values()
+            if u.team_id == doc.owner_team_id and u.position >= max(Position.MANAGER, doc.min_position)
+        ]
+        notify(
+            db,
+            approvers + [users["dev"].id],
+            kind="access.requested",
+            title=f"{db.get(User, req.requester_id).full_name} asked for access to “{doc.title}”",
+            body=req.reason,
+            link="/requests",
+            dedupe_key=f"access.requested:{req.id}",
+        )
+    users["aarav"].onboarding_until = now + timedelta(days=25)
+
+    # The demo's shared drive: a folder synced with team and classification rules per subfolder.
+    if DEMO_DRIVE.is_dir():
+        drive = Source(
+            kind=SourceKind.FOLDER.value,
+            name="Shared drive (demo)",
+            config={"path": str(DEMO_DRIVE), "rules": DEMO_DRIVE_RULES},
+            owner_team_id=teams["Human Resources"].id,
+            classification=Classification.INTERNAL.value,
+            permission_mode="rules",
+            sync_interval_minutes=60,
+            created_by=users["dev"].id,
+            stats={},
+        )
+        db.add(drive)
+        db.commit()
+        from .sync import sync_source
+
+        report = sync_source(db, drive)
+        drive.status, drive.last_synced_at, drive.stats = "ok", now, report.as_dict()
     db.commit()
     return True
 

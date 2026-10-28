@@ -10,17 +10,17 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, update
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from .. import audit
+from ..access_flow import create_access_request
 from ..database import get_db
 from ..deps import current_user
 from ..models import AccessGrant, AccessRequest, Document, RequestStatus, User
-from ..policy import can_approve, can_view, grant_is_active, is_discoverable_to
+from ..notify import notify
+from ..policy import can_approve, grant_is_active
 from ..schemas import AccessRequestIn, AccessRequestOut, DecisionIn, GrantOut
 from ..serializers import grant_out, request_out
-from ..services import active_grant_ids
 
 router = APIRouter(prefix="/api", tags=["access"])
 
@@ -34,29 +34,7 @@ def _load_request(db: Session, request_id: int) -> AccessRequest:
 
 @router.post("/access-requests", response_model=AccessRequestOut, status_code=status.HTTP_201_CREATED)
 def create_request(body: AccessRequestIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    doc = db.get(Document, body.document_id)
-    if doc is None or not is_discoverable_to(user, doc):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
-    if can_view(user, doc, active_grant_ids(db, user)):
-        raise HTTPException(status.HTTP_409_CONFLICT, "You already have access to this document")
-    existing = db.scalar(
-        select(AccessRequest).where(
-            AccessRequest.document_id == doc.id,
-            AccessRequest.requester_id == user.id,
-            AccessRequest.status == RequestStatus.PENDING,
-        )
-    )
-    if existing:
-        raise HTTPException(status.HTTP_409_CONFLICT, "You already have a pending request for this document")
-
-    req = AccessRequest(document_id=doc.id, requester_id=user.id, reason=body.reason.strip(), duration_days=body.duration_days)
-    db.add(req)
-    try:
-        db.flush()  # the unique index on pending requests catches a concurrent duplicate here
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "You already have a pending request for this document") from None
-    audit.record(db, user, "access.request", "document", doc.id, title=doc.title, request_id=req.id)
+    req = create_access_request(db, user, db.get(Document, body.document_id), body.reason, body.duration_days)
     db.commit()
     db.refresh(req)
     return request_out(req)
@@ -108,6 +86,16 @@ def _decide(db: Session, user: User, request_id: int, approve: bool, body: Decis
                 document_id=req.document_id, user_id=req.requester_id, granted_by=user.id, expires_at=now + timedelta(days=days)
             )
         )
+    days_text = f" for {req.duration_days} day{'s' if req.duration_days != 1 else ''}" if approve else ""
+    notify(
+        db,
+        [req.requester_id],
+        kind="access.approved" if approve else "access.denied",
+        title=f"{user.full_name} {'approved' if approve else 'declined'} your request for “{req.document.title}”{days_text}",
+        body=req.decision_note,
+        link=f"/library/{req.document_id}" if approve else "/requests",
+        dedupe_key=f"access.decided:{req.id}",
+    )
     audit.record(
         db,
         user,

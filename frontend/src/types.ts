@@ -47,10 +47,52 @@ export interface Doc {
   created_at: string;
   updated_at: string;
   access: AccessInfo;
+  shared_with_groups: string[];
+  version: number;
+  /** False when admins or the document's managers keep it away from the AI. */
+  ai_enabled: boolean;
+  /** "mirror": synced with the sharing it has in its source (Drive, SharePoint). */
+  acl_mode: "native" | "mirror";
+  source: SourceRef | null;
+  source_path: string;
+  external_url: string | null;
+}
+
+export interface SourceRef {
+  id: number;
+  kind: string;
+  label: string;
+  name: string;
+}
+
+export interface Passage {
+  ordinal: number;
+  text: string;
 }
 
 export interface DocDetail extends Doc {
   preview: string | null;
+  passages: Passage[];
+}
+
+export interface Version {
+  version: number;
+  created_at: string;
+  created_by: string | null;
+  change_summary: string;
+  size: number;
+}
+
+export interface Changes {
+  from_version: number | null;
+  to_version: number;
+  summary: string;
+  diff: {
+    added: string[];
+    removed: string[];
+    changed: { before: string; after: string }[];
+    counts: { added: number; removed: number; changed: number };
+  } | null;
 }
 
 export interface DocCard {
@@ -60,6 +102,8 @@ export interface DocCard {
   classification: Classification;
   snippet?: string;
   why?: string;
+  /** Paragraphs cited, by their position in the document. */
+  passages?: number[];
 }
 
 export interface LockedHint {
@@ -72,16 +116,47 @@ export interface LockedHint {
   request_pending: boolean;
 }
 
+export type ActionKind = "request_access" | "share" | "save_summary" | "draft_message";
+
+export interface AssistantAction {
+  id: number;
+  kind: ActionKind;
+  label: string;
+  payload: {
+    document_id?: number;
+    title?: string;
+    reason?: string;
+    duration_days?: number;
+    target?: { kind: "team" | "group" | "user"; id: number; name: string; email?: string };
+    message_id?: number;
+    to?: string;
+    email?: string;
+    subject?: string;
+    body?: string;
+  };
+  status: "proposed" | "done" | "dismissed" | "failed";
+  result: { message?: string; link?: string; body?: string };
+}
+
+export type Intent = "summary" | "key_points" | "for_me" | "changes" | "compare";
+
 export interface Message {
   id: number;
   role: "user" | "assistant";
   content: string;
   meta: {
-    mode?: "ai" | "offline";
+    /** ai: written by the model; offline: matching passages; direct: VaultMind's own records or a template. */
+    mode?: "ai" | "offline" | "direct";
+    intent?: string;
     citations?: DocCard[];
     locked?: LockedHint[];
     suggestions?: DocCard[];
     fallback?: { reason: string; message: string };
+    notice?: string;
+    ai_blocked?: DocCard[];
+    search?: { expanded?: string[]; rewritten?: string };
+    actions?: AssistantAction[];
+    changes?: { id: number; title: string; version: number; from_version: number }[];
   };
   created_at: string;
 }
@@ -91,6 +166,49 @@ export interface Conversation {
   title: string;
   created_at: string;
   updated_at: string;
+  document_id: number | null;
+}
+
+export interface Notification {
+  id: number;
+  kind: string;
+  title: string;
+  body: string;
+  link: string;
+  created_at: string;
+  read_at: string | null;
+}
+
+export interface Preferences {
+  notify_email: boolean;
+  email_available: boolean;
+  slack_available: boolean;
+  slack_linked: boolean;
+}
+
+export interface Onboarding {
+  active: boolean;
+  until: string | null;
+  steps: { id: string; label: string; hint: string; done: boolean; link: string }[];
+  done: number;
+  total: number;
+}
+
+export interface GlossaryTerm {
+  id: number | null;
+  term: string;
+  synonyms: string[];
+  note: string;
+  builtin: boolean;
+}
+
+export interface Group {
+  id: number;
+  name: string;
+  description: string;
+  provider: "manual" | "google" | "microsoft";
+  members: number;
+  member_ids?: number[];
 }
 
 export interface Recommendation {
@@ -155,6 +273,10 @@ export interface Meta {
   classifications: { value: Classification; label: string; help: string }[];
   teams: Team[];
   demo_users: DemoUser[];
+  /** Company sign-in options that are set up on the server ("Continue with Google"). */
+  sso_providers: { id: string; label: string }[];
+  /** False when people must use their company account; administrators can still use a password. */
+  password_login: boolean;
 }
 
 export interface ScanFinding {
@@ -162,4 +284,64 @@ export interface ScanFinding {
   label: string;
   count: number;
   level: Classification;
+}
+
+export interface AdminUser extends User {
+  auth_provider: string;
+  directory_managed: boolean;
+  has_password: boolean;
+  onboarding: boolean;
+  notify_email: boolean;
+  groups: string[];
+  created_at: string;
+}
+
+export interface AdminTeam extends Team {
+  members: number;
+  documents: number;
+}
+
+export interface Source {
+  id: number;
+  kind: "folder" | "google_drive" | "microsoft_365";
+  label: string;
+  name: string;
+  config: Record<string, unknown>;
+  owner_team_id: number;
+  owner_team: string;
+  classification: Classification;
+  permission_mode: "mirror" | "rules";
+  ai_enabled: boolean;
+  sync_directory: boolean;
+  enabled: boolean;
+  sync_interval_minutes: number;
+  status: "idle" | "syncing" | "ok" | "error";
+  last_synced_at: string | null;
+  last_error: string;
+  stats: Record<string, number | string[]>;
+  document_count: number;
+  created_at: string;
+}
+
+export interface Insights {
+  days: number;
+  questions: number;
+  unanswered: number;
+  channels: Record<string, number>;
+  top_questions: { question: string; count: number; unanswered: number; last_asked: string }[];
+  unanswered_questions: { question: string; count: number; last_asked: string }[];
+  stale_documents: { id: number; title: string; team: string; updated_at: string; views: number }[];
+  sources: {
+    id: number;
+    name: string;
+    kind: string;
+    label: string;
+    status: string;
+    enabled: boolean;
+    last_synced_at: string | null;
+    last_error: string;
+    overdue: boolean;
+    documents: number;
+  }[];
+  ai: { mode: "ai" | "offline"; documents_ai_off: number; sources_ai_off: number };
 }

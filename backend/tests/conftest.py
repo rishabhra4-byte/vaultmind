@@ -9,6 +9,7 @@ os.environ["VAULTMIND_ANTHROPIC_API_KEY"] = ""
 os.environ["VAULTMIND_JWT_SECRET"] = "test-secret-that-is-long-enough-for-hs256"
 os.environ["VAULTMIND_SEED_DEMO_DATA"] = "true"
 os.environ["VAULTMIND_ENV"] = "development"
+os.environ["VAULTMIND_SCHEDULER_ENABLED"] = "false"  # tests run background jobs explicitly
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -40,10 +41,23 @@ class FakeLLM:
         return call["system"] + "\n".join(m["content"] for m in call["messages"])
 
 
+def _stamp_head() -> None:
+    """The tables come straight from the models, so they're at the latest migration already."""
+    from alembic import command
+
+    from app.migrations import alembic_config
+
+    cfg = alembic_config()
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.stamp(cfg, "head")
+
+
 @pytest.fixture(autouse=True)
 def fresh_db():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
+    _stamp_head()
     with SessionLocal() as db:
         seed(db)
         rebuild_index(db)
