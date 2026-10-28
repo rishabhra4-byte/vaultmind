@@ -2289,6 +2289,7 @@ ul.plain {
   white-space: nowrap;
 }
 .table-wrap {
+  position: relative; /* keeps screen-reader-only text inside the scrolling area */
   overflow-x: auto;
   background: var(--surface);
   border: 1px solid var(--line);

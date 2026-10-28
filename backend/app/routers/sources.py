@@ -53,8 +53,8 @@ def _validate(db: Session, source: Source) -> None:
     if not kind_available(kind):
         hint = {
             SourceKind.FOLDER: "No shared-folder locations are allowed on this server (VAULTMIND_FOLDER_ROOTS).",
-            SourceKind.GOOGLE: "Google Workspace isn't set up on this server yet (see the setup guide).",
-            SourceKind.MICROSOFT: "Microsoft 365 isn't set up on this server yet (see the setup guide).",
+            SourceKind.GOOGLE: "Google Workspace isn't set up on this server yet (see docs/integrations.md).",
+            SourceKind.MICROSOFT: "Microsoft 365 isn't set up on this server yet (see docs/integrations.md).",
         }[kind]
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, hint)
     unknown = set(source.config or {}) - CONFIG_KEYS[kind]

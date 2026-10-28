@@ -239,7 +239,8 @@ async function signOut(page) {
     });
     await check('assistant: citation number opens the document at the cited paragraph', async () => {
       await p.waitForSelector('.msg-tools >> nth=1');
-      const link = p.locator('.msg-assistant .cite').last();
+      // The leave answer's first source is the handbook paragraph that gives the number of days.
+      const link = p.locator('.msg-assistant').last().locator('.cite[href*="#p"]').first();
       await link.click();
       await p.waitForURL(/\/library\/\d+#p\d+$/);
       await p.waitForSelector('.doc-hero h1');
@@ -501,10 +502,11 @@ async function signOut(page) {
       await p.click('.ask-quick button:has-text("Key points")');
       await p.waitForSelector('.ask-drawer .msg-tools', { timeout: 10000 });
       const hrefs = await p.$$eval('.ask-drawer .msg-assistant .cite', (els) => els.map((e) => e.getAttribute('href')));
-      return (focused === 'Question about this document' && hrefs.length > 0 && hrefs.every((h) => /^\/library\/6#p\d+$/.test(h))) || `${focused} / ${hrefs}`;
+      const paragraphs = hrefs.filter((h) => /^\/library\/6#p\d+$/.test(h));
+      return (focused === 'Question about this document' && paragraphs.length > 0 && hrefs.every((h) => h.startsWith('/library/6'))) || `${focused} / ${hrefs}`;
     });
     await check('doc: a paragraph citation in the panel marks that paragraph', async () => {
-      await p.click('.ask-drawer .msg-assistant .cite >> nth=0');
+      await p.click('.ask-drawer .msg-assistant .cite[href*="#p"] >> nth=0');
       await p.waitForSelector('.passage.hl');
     });
     await check('doc: the panel keeps the conversation, and Esc closes it', async () => {

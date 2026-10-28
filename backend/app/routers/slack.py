@@ -1,7 +1,7 @@
 """Slack endpoints: the /vaultmind slash command and the Events API (mentions, direct messages).
 
 Set the Slack app's Request URLs to https://<your VaultMind>/api/slack/commands and
-https://<your VaultMind>/api/slack/events. See docs/setup-slack.md.
+https://<your VaultMind>/api/slack/events. See docs/integrations.md#slack.
 """
 
 import json

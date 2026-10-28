@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useApp } from "../state";
 import { ThemeToggle } from "../theme";
@@ -93,7 +93,10 @@ export default function Shell() {
         </div>
       </aside>
       <main className="main" id="main" tabIndex={-1}>
-        <Outlet />
+        {/* A page's code loads the first time it's opened; the sidebar stays put meanwhile. */}
+        <Suspense fallback={<div className="page" aria-busy="true" />}>
+          <Outlet />
+        </Suspense>
       </main>
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
     </div>
