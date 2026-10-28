@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import IntegrityError
 
 from app import storage
@@ -308,7 +308,7 @@ def test_audit_filter_treats_wildcards_literally(client, login):
 # ---------------------------------------------------------------- migrations
 
 
-def test_migrations_build_the_same_schema_as_the_models(tmp_path: Path):
+def test_migrations_build_the_same_schema_as_the_models(empty_database):
     from alembic import command
     from alembic.autogenerate import compare_metadata
     from alembic.migration import MigrationContext
@@ -316,7 +316,7 @@ def test_migrations_build_the_same_schema_as_the_models(tmp_path: Path):
     from app.database import Base
     from app.migrations import alembic_config
 
-    engine = create_engine(f"sqlite:///{tmp_path}/m.db")
+    engine = empty_database
     cfg = alembic_config()
     with engine.begin() as conn:
         cfg.attributes["connection"] = conn
@@ -326,14 +326,14 @@ def test_migrations_build_the_same_schema_as_the_models(tmp_path: Path):
     assert diff == [], diff
 
 
-def test_databases_from_version_1_are_upgraded_in_place(tmp_path: Path, monkeypatch):
+def test_databases_from_version_1_are_upgraded_in_place(empty_database, monkeypatch):
     """A 1.0 database (made with create_all, so no migration history) keeps its data, and its
     documents get their current text recorded as version 1."""
     from alembic import command
 
     from app import migrations
 
-    engine = create_engine(f"sqlite:///{tmp_path}/old.db")
+    engine = empty_database
     cfg = migrations.alembic_config()
     with engine.begin() as conn:  # the 1.0 schema...
         cfg.attributes["connection"] = conn
@@ -345,7 +345,7 @@ def test_databases_from_version_1_are_upgraded_in_place(tmp_path: Path, monkeypa
         conn.execute(
             text(
                 "INSERT INTO users (id, email, full_name, title, password_hash, team_id, position,"
-                " is_admin, is_active, created_at) VALUES (1, 'a@x', 'A', '', 'h', 1, 1, 0, 1, :now)"
+                " is_admin, is_active, created_at) VALUES (1, 'a@x', 'A', '', 'h', 1, 1, false, true, :now)"
             ),
             {"now": now},
         )
@@ -354,7 +354,7 @@ def test_databases_from_version_1_are_upgraded_in_place(tmp_path: Path, monkeypa
                 "INSERT INTO documents (id, title, filename, mime_type, size, sha256, storage_key, owner_team_id,"
                 " classification, min_position, discoverable, summary, tags, sensitivity_flags, uploaded_by,"
                 " created_at, updated_at) VALUES (7, 'Guide', 'g.md', 'text/markdown', 10, 'abc', 'ab/abc', 1,"
-                " 'internal', 1, 1, '', '[]', '[]', 1, :now, :now)"
+                " 'internal', 1, true, '', '[]', '[]', 1, :now, :now)"
             ),
             {"now": now},
         )

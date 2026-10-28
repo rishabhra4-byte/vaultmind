@@ -387,6 +387,7 @@ The features asked for after the audit: VaultMind now reads files where they alr
 |---|---|---|
 | Backend: pytest, SQLite | Local, Python 3.13 | **167 passed**, 4 live tests skipped (193s) |
 | Backend: pytest, PostgreSQL 16 | Local, PostgreSQL 16 | **167 passed**, 4 live tests skipped (218s) |
+| Database migrations on PostgreSQL | Local, PostgreSQL 16 | **pass.** Upgrading an empty database to the latest version gives exactly the models' schema, and a database from 1.0 is upgraded in place with its data kept and its documents' text recorded as version 1. These two tests used to run only on SQLite; they now run on whichever database the suite uses, so CI's PostgreSQL job covers them too |
 | Lint and format (`ruff check`, `ruff format --check`) | Local | **pass** |
 | `pip-audit -r requirements.txt` | Local | **No known vulnerabilities** |
 | `npm audit --audit-level=high` (frontend and e2e) | Local | **0 vulnerabilities** |
