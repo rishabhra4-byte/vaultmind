@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, download } from "../api";
 import {
@@ -57,6 +57,12 @@ export default function DocumentPage() {
   const [downloading, setDownloading] = useState(false);
   const [asking, setAsking] = useState(false);
   const [newVersion, setNewVersion] = useState(false);
+  const askButton = useRef<HTMLButtonElement>(null);
+  const closeAsk = useCallback(() => {
+    setAsking(false);
+    // Back to where the person was, once the button is shown again.
+    requestAnimationFrame(() => askButton.current?.focus());
+  }, []);
   usePageTitle(missing ? "Document not found" : (doc?.title ?? "Document"));
 
   const [version, setVersion] = useState(0);
@@ -131,8 +137,8 @@ export default function DocumentPage() {
     if (!doc) return;
     try {
       await api(`/api/documents/${doc.id}`, { method: "PATCH", json: { ai_enabled: on } });
+      setDoc((d) => (d ? { ...d, ai_enabled: on } : d));
       notify(on ? "The assistant can read this document again" : "The assistant won't read this document");
-      load();
     } catch (err) {
       notify(err instanceof ApiError ? err.message : "Couldn't save that", "error");
     }
@@ -217,7 +223,7 @@ export default function DocumentPage() {
             <p className="muted small">{access.reason}</p>
             {access.allowed && (
               <div className="stack-sm">
-                <button className="btn block primary" onClick={() => setAsking(true)} aria-expanded={asking}>
+                <button ref={askButton} className="btn block primary" onClick={() => setAsking(true)} aria-expanded={asking}>
                   <IconSparkle /> Ask about this document
                 </button>
                 <button className="btn block" onClick={onDownload} disabled={downloading}>
@@ -314,7 +320,7 @@ export default function DocumentPage() {
         </aside>
       </div>
 
-      {asking && access.allowed && <DocAsk doc={doc} onClose={() => setAsking(false)} />}
+      {asking && access.allowed && <DocAsk doc={doc} onClose={closeAsk} />}
       {requesting && (
         <RequestAccessDialog
           doc={{ id: doc.id, title: doc.title, team: doc.owner_team }}
