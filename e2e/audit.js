@@ -31,26 +31,46 @@ async function check(name, fn) {
 
 // How each engine reports a request the browser itself cancelled (Chromium, Firefox, WebKit).
 const CANCELLED = /^(net::ERR_ABORTED|NS_BINDING_ABORTED|Load request cancelled|cancelled)$/;
+// WebKit also logs an error for each fetch of this site it cancels when a page is left:
+// "Fetch API cannot load <url> due to access control checks." (Playwright reports it as a page
+// error). A same-site request can't fail a real access control check.
+const OWN_FETCH_CANCELLED = new RegExp(`${new URL(BASE).host.replace(/\./g, '\\.')}/\\S* due to access control checks`);
 
 function watch(page, tag) {
   // The audit moves on as soon as a check passes, so it often loads the next page while the
   // last one is still fetching. The browser cancels those requests; that's not a problem in
   // the app. A cancelled request counts only if the page didn't navigate after it started.
   let navigations = 0;
+  let lastNavigationAt = 0;
   const startedAfter = new WeakMap();
   page.on('request', (r) => {
     let leavesPage = false;
     try {
       leavesPage = r.isNavigationRequest() && r.frame() === page.mainFrame();
     } catch {} // requests without a frame (service workers) can't navigate the page
-    if (leavesPage) navigations++;
+    if (leavesPage) {
+      navigations++;
+      lastNavigationAt = Date.now();
+    }
     startedAfter.set(r, navigations);
   });
-  page.on('pageerror', (e) => problems.push(`[${tag}] page error: ${e.message}`));
-  page.on('console', (m) => {
+  // True for WebKit's message about a cancelled fetch when the page was left just before or after.
+  const cancelledByLeaving = async (text) => {
+    if (!OWN_FETCH_CANCELLED.test(text)) return false;
+    const seenAt = Date.now();
+    const before = navigations;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    return navigations > before || seenAt - lastNavigationAt < 2000;
+  };
+  page.on('pageerror', async (e) => {
+    if (await cancelledByLeaving(e.message)) return;
+    problems.push(`[${tag}] page error: ${e.message}`);
+  });
+  page.on('console', async (m) => {
     if (page.__expectFailures) return; // a check that breaks things on purpose
-    if (m.type() === 'error' && !/fonts\.g|ERR_TUNNEL|net::ERR_FAILED|Failed to load resource: the server responded with a status of (401|403|404|409|422|429)/.test(m.text()))
-      problems.push(`[${tag}] console: ${m.text().slice(0, 200)}`);
+    if (m.type() !== 'error' || /fonts\.g|ERR_TUNNEL|net::ERR_FAILED|Failed to load resource: the server responded with a status of (401|403|404|409|422|429)/.test(m.text())) return;
+    if (await cancelledByLeaving(m.text())) return;
+    problems.push(`[${tag}] console: ${m.text().slice(0, 200)}`);
   });
   page.on('requestfailed', async (r) => {
     if (/fonts\.g/.test(r.url()) || page.__expectFailures) return;
@@ -199,6 +219,7 @@ async function signOut(page) {
     await check('sign-in: a return address on another site is ignored', async () => {
       await p.goto(BASE + '/signin?next=' + encodeURIComponent('https://evil.example/'));
       await p.waitForURL((u) => u.pathname === '/' && u.host === new URL(BASE).host);
+      await p.waitForLoadState('networkidle'); // the next check reloads; let this page finish loading first
     });
     await check('session: corrupted token signs you out cleanly', async () => {
       await p.evaluate(() => localStorage.setItem('vaultmind.token', 'garbage'));
