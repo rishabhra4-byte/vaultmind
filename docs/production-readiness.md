@@ -1,6 +1,6 @@
 # VaultMind production-readiness audit
 
-**Date:** 27 October 2026 · **Code audited:** `main`, commits `3304ed3` to `a9a292e` · **Scope:** functionality, AI integration, security, accessibility (WCAG 2.2 AA), browsers and devices, Docker and deployment, fonts and design, performance, data and reliability, testing and CI, SEO and maintainability.
+**Date:** 27 October 2026, with the company features added on 28 October ([section G](#g-company-features-28-october-2026)) · **Code audited:** `main`, commits `3304ed3` to `a9a292e`, then the `wip/company-features` branch · **Scope:** functionality, AI integration, security, accessibility (WCAG 2.2 AA), browsers and devices, Docker and deployment, fonts and design, performance, data and reliability, testing and CI, SEO and maintainability.
 
 Every test result below comes from actually running the test. Anything that could not be run says so, with the reason and the steps to finish it.
 
@@ -11,13 +11,13 @@ Every test result below comes from actually running the test. Anything that coul
 - **Ready** for a public demo (demo data on) and for a pilot with one team, run as a single container behind HTTPS.
 - **Not yet ready** to be a company's main document system. Before that, it needs:
   - a test with a real Anthropic key (`tests/test_live_anthropic.py` does it in one command)
+  - each connector, the company sign-in and the Slack app tried against the real Google, Microsoft and Slack services (they are tested only against local stand-ins of their APIs, see [G4](#g4-still-unverified))
   - a manual pass with a real screen reader and on real phones
-  - people management that doesn't need the command line, or SSO
   - sessions that end when a password changes
   - scheduled backups
   - a written decision on sending document passages to Anthropic
 
-The details are in [F](#f-release-recommendation).
+The details are in [F](#f-release-recommendation) and [G](#g-company-features-28-october-2026). Sections A to F describe the audit of 27 October; the open risk R5 there (people managed only from the command line, no SSO) has since been addressed by the company features.
 
 ---
 
@@ -53,7 +53,7 @@ The details are in [F](#f-release-recommendation).
 | R2 | **Single process only.** The search index and the rate limits are held in memory. | Medium (operations) | Scaling out needs a shared index and Redis. | The image runs one worker, and the README says not to scale out. |
 | R3 | **Uploads aren't scanned for malware.** | Medium | Needs an external scanner such as ClamAV. | Files are never rendered inline: they are served as attachments with an allow-listed type and `nosniff`. |
 | R4 | **With a key set, document passages go to Anthropic.** | Policy | This is a data-processing decision for the company, not a code fix. | Only passages the asking person may open are sent. The README says this plainly. |
-| R5 | **People are managed only from the command line.** There is no self-service password reset and no SSO. | Functional gap | This is a feature, not a fix. | `create-admin`, `create-user` and `set-password` operator commands, which are tested. Positions and deactivation are on the admin page. |
+| R5 | **People are managed only from the command line.** There is no self-service password reset and no SSO. | Functional gap | *Addressed on 28 October:* people are now added, edited and imported on the admin page, can be synced from Google or Microsoft, and can sign in with Google or Microsoft (G1). There is still no self-service password reset for password accounts. | `create-admin`, `create-user` and `set-password` operator commands, which are tested. |
 | R6 | **Backups are manual.** | Data loss if neglected | Scheduling depends on where it's hosted. | The procedure is in the README and was drilled locally. |
 | R7 | **Default PostgreSQL password.** If `POSTGRES_PASSWORD` isn't set, it is `vaultmind`. | Low | The database isn't published outside the Compose network. | The README and Compose comments say to set it before the first start. |
 
@@ -311,7 +311,7 @@ Statuses:
 | No memory leak over a long session | ✅ | `perf.js` soak |
 | Gzip and immutable caching of hashed assets | ✅ | `docker-smoke.sh` |
 | Load at company scale | ⚪ | D7 |
-| Route-level code splitting | ⚪ | Lighthouse estimates 41 KB of unused JavaScript on the landing page; worth doing before adding more pages |
+| Route-level code splitting | ✅ | Added on 28 October: the signed-in pages load on demand (section G3) |
 
 ### 9. Data and reliability
 
@@ -338,3 +338,81 @@ Statuses:
 | Lighthouse SEO 100; meta description; Open Graph image; `robots.txt`; `<noscript>` | ✅ | Section C |
 | Absolute URLs for `og:image` and a canonical link | ⚪ | They need the production domain. Set them in `frontend/index.html` when deploying. |
 | Types, lint, formatting, documented operator commands | ✅ | `tsc`, `ruff`, README |
+
+---
+
+## G. Company features (28 October 2026)
+
+The features asked for after the audit: VaultMind now reads files where they already live, people sign in with their company account, the assistant does more, and admins can run it without the command line.
+
+### G1. What was added
+
+- **Connectors** for shared folders, Google Drive and Microsoft 365 (SharePoint, OneDrive), synced on a schedule. Each file can keep its sharing from the source (people, groups, domain, company-wide links), or follow folder rules (team and classification per folder). Optional directory sync creates and updates people, teams (from departments) and groups.
+- **Sign in with Google or Microsoft** (OpenID Connect, authorization code with PKCE). Password sign-in can be switched off for everyone except admins.
+- **A smarter assistant:**
+  - citations of the exact paragraph
+  - asking about one document (summary, key points, "what it means for me")
+  - comparing two documents
+  - what changed between versions
+  - actions it can offer, run only when the person presses the button: ask for access, share, save an answer, draft a message
+  - a company glossary that widens searches, and asking the model for better search words when a search finds little
+  - an AI switch per document and per source, and identity numbers and secrets masked before passages reach the model
+- **Notifications** in the app, by email and in Slack. They cover requests to decide, decisions, access about to expire, and changes to documents someone read.
+- **A Slack app**: `/vaultmind`, mentions and direct messages, answered with the person's own permissions.
+- **A first-week checklist** for new joiners.
+- **Admin pages**: people (with spreadsheet import), teams, groups, sources, the glossary, the activity log and insights.
+
+### G2. Risks in the new parts, and how they're handled
+
+| # | Risk | How it's handled | Proven by |
+|---|---|---|---|
+| G-S1 | A synced file is visible to people it isn't shared with at the source | In "keep the sharing" mode a file can only be opened by its source principals (plus admins and holders of a grant). It is never discoverable, so people without access can't even see its title. Only admins manage synced files. | `test_mirrored_files_follow_the_sharing_from_their_source`, `test_people_without_access_cannot_see_mirrored_files_at_all`, `test_google_drive_files_keep_their_sharing`, `test_microsoft_365_files_keep_their_sharing` |
+| G-S2 | Sharing removed at the source stays open in VaultMind | Every sync re-reads each file's sharing and replaces it. Files deleted at the source are removed. A failed listing (for example expired credentials) removes nothing and is reported. | `test_google_sharing_changes_and_removals_follow_on_the_next_sync`, `test_google_problems_are_reported_not_crashed`, `test_folder_changes_renames_and_deletions_follow_on_the_next_sync` |
+| G-S3 | An admin points a shared-folder source at the server's own files | Only folders inside `VAULTMIND_FOLDER_ROOTS` can be connected; symlinks leading outside the folder are skipped. | `test_folders_outside_the_allowed_locations_are_refused`, `test_folder_paths_cannot_escape` |
+| G-S4 | Folder rules label a payroll file "Public" | The scanner's findings set a floor: rules can raise a file's classification, never lower it below what the scanner found. | `test_a_shared_folder_syncs_with_folder_rules` |
+| G-S5 | Directory sync gives too much access, or locks people out | New people's positions come from their job titles and err low. People suspended at the source are switched off; people who already had an account are linked, not changed; and a sync never switches off an administrator. | `test_position_from_title`, `test_google_drive_files_keep_their_sharing`, `test_google_sharing_changes_and_removals_follow_on_the_next_sync` |
+| G-S6 | Forged or replayed company sign-in | Each sign-in gets a random state, nonce and PKCE verifier, kept in a signed, HttpOnly, 10-minute cookie. The ID token's signature is checked against the provider's published keys, along with its issuer, audience, expiry and nonce. Google accounts must be verified and in an allowed domain; Microsoft accounts must be in the tenant. The return address must be on the same site. The session token is handed to the page in the URL fragment, so it never reaches a server log. | `test_sso.py` (9 tests: wrong state, missing cookie, another key's signature, another nonce, other domains, unverified email, another tenant, deactivated people, unsafe return addresses) |
+| G-S7 | The assistant does something nobody asked for | Actions are only proposed. They run when the person presses the button, and permissions are checked again at that moment with the same rules as the regular pages. Proposals belong to one person; anyone else gets 404. A dismissed or completed action can't run again. | `test_request_access_from_a_locked_match`, `test_share_with_a_team_needs_a_manager_and_a_confirmation`, `test_give_one_person_access`, `test_dismissed_actions_cannot_run` |
+| G-S8 | A saved answer leaks a document to a wider audience | Saved answers are Restricted (only their author and admins can open them) until the author shares them. If any source was kept away from the AI, so is the saved note. | `test_save_an_answer_as_a_private_document` |
+| G-S9 | Identity numbers or secrets sent to the AI service | Aadhaar, PAN, card numbers, API keys and passwords are masked in every passage before it is sent; documents and sources with AI reading off are never sent. The rewrite of a weak search sends only the question. | `test_identity_numbers_and_secrets_are_masked_before_the_model_sees_them`, `test_documents_with_ai_reading_off_never_reach_the_model`, `test_weak_searches_are_rephrased_by_the_model_without_sending_documents` |
+| G-S10 | The model cites a paragraph it was never given | Paragraph citations are checked against the passages actually sent; unknown ones are reduced to the document, unknown documents are removed. | `test_the_model_can_only_cite_passages_it_was_given` |
+| G-S11 | Forged Slack requests, or answers leaking into channels | Every request needs a valid Slack signature less than five minutes old. People are matched by their Slack profile's email and answered with their own permissions. In channels, answers are ephemeral (only the asker sees them). Retries and repeated events are answered once; bots are ignored. Answers go only to Slack's own addresses. | `test_slack_endpoints_need_slack_set_up_and_a_valid_signature`, `test_slash_command_answers_privately_with_the_askers_permissions`, `test_mentions_are_answered_only_to_the_person_who_asked` |
+| G-S12 | Insights expose who asked what | The insights page shows questions without who asked them. | `test_insights_show_what_people_ask_and_what_needs_attention` |
+| G-S13 | A file deleted before its database change commits, or kept after it | Stored files are deleted only after the transaction commits, and only when no other document uses them. | `test_a_file_is_only_deleted_once_the_deletion_is_committed` |
+| G-S14 | Admin spreadsheet import makes a partial mess | Import has a preview; nothing is saved while any row has a problem, and nobody can remove their own admin rights through it. | `test_import_people_from_a_spreadsheet` |
+| G-S15 | A new version is deployed while people have VaultMind open, so the next page they open can't download its code (the signed-in pages load on demand) | The download is tried again after 1.5 seconds. If it still fails, the page says it didn't load and offers **Reload**; the sidebar keeps working, so other pages can still be opened. Before this, the screen went blank. | Browser audit: `offline: a page whose code fails to download offers a reload; the rest of the app still works` |
+
+### G3. Tests run and their results (28 October)
+
+| Suite | Where | Result |
+|---|---|---|
+| Backend: pytest, SQLite | Local, Python 3.13 | **167 passed**, 4 live tests skipped (203s) |
+| Backend: pytest, PostgreSQL 16 | Local, PostgreSQL 16 | **167 passed**, 4 live tests skipped (213s) |
+| Database migrations on PostgreSQL | Local, PostgreSQL 16 | **pass.** Upgrading an empty database to the latest version gives exactly the models' schema, and a database from 1.0 is upgraded in place with its data kept and its documents' text recorded as version 1. These two tests used to run only on SQLite; they now run on whichever database the suite uses, so CI's PostgreSQL job covers them too |
+| Lint and format (`ruff check`, `ruff format --check`) | Local | **pass** |
+| `pip-audit -r requirements.txt` | Local | **No known vulnerabilities** |
+| `npm audit --audit-level=high` (frontend and e2e) | Local | **0 vulnerabilities** |
+| TypeScript and production build | Local | **pass** |
+| Browser audit, Chromium 153 (`audit.js`) | Local | **435/435 checks passed, 0 console errors or failed requests.** The first run had 8 failures. Two were checks clicking the wrong citation. Six were a real bug: the people table made the page scroll sideways on phones, because text hidden for screen readers escaped its scrolling box. Both were fixed, then the whole audit was run again. After the Firefox and WebKit findings below, a check for a page whose code fails to download was added, and the audit was run again: 435/435. |
+| Accessibility review (`a11y-review.js`) | Local, Chromium | **24/24 passed.** New checks cover focus moving into the notifications and "Ask about this document" panels and back to the button on Esc, focus kept inside the "Connect a source" dialog, accessible names on every admin page, and focus never hidden on the admin pages |
+| Performance (`perf.js`) | Local, Chromium | Slow 3G, first visit: homepage first paint **2.7s**, 134 KB, layout shift 0.056; sign-in **3.1s**, 112 KB, layout shift **0**. Memory soak: heap grew **0 MB** over 40 rounds, DOM nodes (592) and listeners (199) unchanged. The new pages first made the homepage slower (3.2s, 161 KB), so the signed-in pages now load on demand: the first download for visitors went from 100 KB to 71 KB of compressed JavaScript |
+| CI on the pull request (backend ×2, frontend, Chromium, Firefox, WebKit, Docker) | GitHub Actions | First two runs: backend on SQLite and PostgreSQL, frontend, Chromium and the Docker job (production mode, PostgreSQL, full audit) **passed**; Firefox and WebKit **failed**, on console and network problems only (see below). The run for the fix was in progress at the time of this commit; its result is added once it finishes |
+
+**What Firefox and WebKit found.** In both CI runs every check passed in Firefox and WebKit, but the audit's list of console and network problems wasn't empty, so the jobs failed. There were two causes:
+
+1. The audit moves to the next page as soon as a check passes. Firefox and WebKit report the requests they cancel when a page is left as failed requests; Chromium doesn't. The audit now ignores a cancelled request only when the page navigated after the request started; every other failed or cancelled request still counts. Both cases were checked in Chromium with a request cancelled on purpose: counted when the page stays, ignored when the page is left.
+2. In WebKit, a page's code that was still downloading when the tab reloaded showed up as a page error ("Importing a module script failed"). That pointed to a real gap (G-S15): since the signed-in pages load on demand, a page whose code couldn't be downloaded left a blank screen. The download is now retried after 1.5 seconds, which also means a download cancelled by leaving the page never surfaces, and if it still fails the page offers a reload.
+
+New backend test files: `test_foundation.py` (groups, mirrored sharing, versions, notifications), `test_connectors.py` (shared folder, Google Drive, Microsoft 365, directory sync, scheduling), `test_sso.py`, `test_delivery.py` (reminders, email and Slack copies, the scheduler), `test_assistant_plus.py` (paragraph citations, one-document questions, compare, what changed, glossary, AI controls, masking, actions), `test_proactive.py` (the Slack app, the first-week checklist, notification settings) and `test_admin_tools.py` (people, import, teams, groups, insights). The browser audit gained checks for every new screen and flow, and its sweep covers the document panel, the notifications panel and four admin pages at eight widths in both themes.
+
+### G4. Still unverified
+
+| # | Item | Status | Why | How to finish it |
+|---|---|---|---|---|
+| G-D1 | **Google Drive and Workspace directory** | Tested against a stand-in only | No Google Workspace or service account here. The stand-in (`tests/fakeserver.py`) follows the real Drive v3 and Admin SDK paths, paging, exports and permission shapes, and checks the service account's signed token. | Follow [integrations.md](integrations.md#google-workspace) with a test folder, then check the "Checking it works" steps. |
+| G-D2 | **Microsoft 365 and Entra ID** | Tested against a stand-in only | No tenant here. The stand-in follows Microsoft Graph paths, paging, download redirects, PDF conversion and throttling. | Follow [integrations.md](integrations.md#microsoft-365) with a test site, then check that sharing changes are followed after **Sync now**. |
+| G-D3 | **Sign in with Google / Microsoft** | Tested against a stand-in OpenID provider | The stand-in issues real RS256 ID tokens from published keys and checks PKCE, so the protocol is exercised end to end, but not with Google's or Microsoft's own servers and consent screens. | Register the redirect URIs, sign in with a test account from an allowed domain, one from another domain (refused), and a deactivated one (refused). |
+| G-D4 | **Slack** | Tested against a stand-in | No Slack workspace here. Signatures are computed exactly as Slack does. | Install the app in a test workspace ([integrations.md](integrations.md#slack)), try `/vaultmind` as two people with different access, and mention it in a channel to confirm only the asker sees the answer. |
+| G-D5 | **Email** | Tested with a stand-in SMTP class | No mail server here. | Set the SMTP variables, request access to a document, and check the approver's inbox. |
+| G-D6 | **The assistant's new answers with the real Claude API** | Same as D1 | Prompts and citation checks are tested with a fake model. | After D1, try "Compare the travel policy with the expense policy" and the quick actions on a document page. |
+| G-D7 | **Syncing at scale** | Not tested | A sync reads files one by one, inside the single app process. Large drives (tens of thousands of files) will take a long first sync. | Connect a large test folder and time the first and second syncs; the second only downloads changed files. |

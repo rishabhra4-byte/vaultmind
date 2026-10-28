@@ -11,27 +11,36 @@ from ..extract import UnsupportedFile, extract_text
 from ..files import content_disposition, media_type_for, safe_filename
 from ..models import (
     DEFAULT_MIN_POSITION,
+    AccessGrant,
     AccessRequest,
     Classification,
     Document,
+    DocumentGroupShare,
     DocumentShare,
+    DocumentVersion,
+    Group,
+    GroupMember,
     Position,
     RequestStatus,
     Team,
     User,
     utcnow,
 )
-from ..policy import can_manage, can_view, is_discoverable_to
+from ..policy import can_manage, can_view, grant_is_active, is_discoverable_to
 from ..recommend import recommend
 from ..schemas import (
     AccessInfo,
+    ChangesOut,
     DocumentDetail,
     DocumentOut,
     DocumentUpdate,
+    NewVersionOut,
+    Passage,
     RecommendationOut,
     ScanOut,
     UploadOut,
     UserOut,
+    VersionOut,
     WhoCanAccess,
 )
 from ..search import index, title_index
@@ -40,12 +49,17 @@ from ..serializers import document_out
 from ..services import (
     AccessView,
     access_view,
-    active_grant_ids,
     index_document,
     ingest_document,
+    remove_document,
+    replace_content,
     unindex_document,
+    viewer,
 )
 from ..text import extractive_summary, keywords
+from ..versions import diff_text
+
+MAX_PASSAGE_CHARS = 80_000  # how much of a document's text the page shows
 
 router = APIRouter(prefix="/api", tags=["documents"])
 
@@ -74,7 +88,14 @@ def _parse_ids(raw: str | None) -> list[int]:
     try:
         return [int(x) for x in raw.split(",") if x.strip()]
     except ValueError:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "share_team_ids must be comma-separated ids") from None
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Sharing must be a list of comma-separated ids") from None
+
+
+def _existing_groups(db: Session, ids: list[int]) -> list[int]:
+    found = set(db.scalars(select(Group.id).where(Group.id.in_(ids)))) if ids else set()
+    if set(ids) - found:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unknown group")
+    return sorted(found)
 
 
 @router.get("/documents", response_model=list[DocumentOut])
@@ -82,6 +103,7 @@ def list_documents(
     q: str | None = None,
     team_id: int | None = None,
     classification: Classification | None = None,
+    source: str | None = Query(None, description='"uploaded", or a source id'),
     include_locked: bool = True,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
@@ -109,7 +131,11 @@ def list_documents(
             continue
         if classification and doc.classification != classification:
             continue
-        out.append(document_out(doc, user, view.grants, pending))
+        if source == "uploaded" and doc.source_id is not None:
+            continue
+        if source and source.isdigit() and doc.source_id != int(source):
+            continue
+        out.append(document_out(doc, view, pending))
     return out
 
 
@@ -117,15 +143,21 @@ def list_documents(
 def get_document(doc_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     view = access_view(db, user)
     doc = _visible_or_404(view, doc_id)
-    base = document_out(doc, user, view.grants, _pending_ids(db, user))
-    preview = None
+    base = document_out(doc, view, _pending_ids(db, user))
+    preview, passages = None, []
     if base.access.allowed:
         preview = "\n\n".join(c.text for c in doc.chunks)[:6000]
+        used = 0
+        for c in doc.chunks:
+            if used >= MAX_PASSAGE_CHARS:
+                break
+            passages.append(Passage(ordinal=c.ordinal, text=c.text))
+            used += len(c.text)
         audit.record(db, user, "document.view", "document", doc.id, title=doc.title)
     else:
         audit.record(db, user, "document.view_denied", "document", doc.id, title=doc.title, reason=base.access.code)
     db.commit()
-    return DocumentDetail(**base.model_dump(), preview=preview)
+    return DocumentDetail(**base.model_dump(), preview=preview, passages=passages)
 
 
 @router.get("/documents/{doc_id}/download")
@@ -135,7 +167,7 @@ def download(doc_id: int, user: User = Depends(current_user), db: Session = Depe
     if doc_id not in view.allowed:
         audit.record(db, user, "document.download_denied", "document", doc.id, title=doc.title)
         db.commit()
-        raise HTTPException(status.HTTP_403_FORBIDDEN, can_view(user, doc, view.grants).reason)
+        raise HTTPException(status.HTTP_403_FORBIDDEN, view.can_view(doc).reason)
     audit.record(db, user, "document.download", "document", doc.id, title=doc.title)
     db.commit()
     return Response(
@@ -150,21 +182,80 @@ def explain_access(doc_id: int, user: User = Depends(current_user), db: Session 
     """'Why can't I open this?' Returns the policy decision in plain language."""
     view = access_view(db, user)
     doc = _visible_or_404(view, doc_id)
-    return document_out(doc, user, view.grants, _pending_ids(db, user)).access
+    return document_out(doc, view, _pending_ids(db, user)).access
 
 
 @router.get("/documents/{doc_id}/who-can-access", response_model=list[WhoCanAccess])
 def who_can_access(doc_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     view = access_view(db, user)
     doc = _visible_or_404(view, doc_id)
-    if not can_manage(user, doc, view.grants):
+    if not can_manage(user, doc, view.grants, view.groups):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the document's managers can see this")
+    groups_by_user: dict[int, set[int]] = {}
+    for m in db.scalars(select(GroupMember)):
+        groups_by_user.setdefault(m.user_id, set()).add(m.group_id)
+    grants_by_user: dict[int, set[int]] = {}
+    for g in db.scalars(select(AccessGrant).where(AccessGrant.document_id == doc.id, AccessGrant.revoked.is_(False))):
+        if grant_is_active(g.expires_at, g.revoked):
+            grants_by_user.setdefault(g.user_id, set()).add(g.document_id)
     out = []
     for member in db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.full_name)):
-        decision = can_view(member, doc, active_grant_ids(db, member))
+        decision = can_view(member, doc, grants_by_user.get(member.id, set()), groups_by_user.get(member.id, set()))
         if decision.allowed:
             out.append(WhoCanAccess(user=UserOut.of(member), via=decision.code))
     return out
+
+
+@router.get("/documents/{doc_id}/versions", response_model=list[VersionOut])
+def versions(doc_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    view = access_view(db, user)
+    doc = _visible_or_404(view, doc_id)
+    if doc_id not in view.allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, view.can_view(doc).reason)
+    rows = db.scalars(
+        select(DocumentVersion).where(DocumentVersion.document_id == doc.id).order_by(DocumentVersion.version.desc())
+    )
+    names = {u.id: u.full_name for u in db.scalars(select(User))}
+    return [
+        VersionOut(
+            version=v.version,
+            created_at=v.created_at,
+            created_by=names.get(v.created_by) if v.created_by else None,
+            change_summary=v.change_summary,
+            size=v.size,
+        )
+        for v in rows
+    ]
+
+
+@router.get("/documents/{doc_id}/changes", response_model=ChangesOut)
+def changes(
+    doc_id: int,
+    to_version: int | None = Query(None, alias="to"),
+    from_version: int | None = Query(None, alias="from"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """What changed between two versions (by default: the latest and the one before it)."""
+    view = access_view(db, user)
+    doc = _visible_or_404(view, doc_id)
+    if doc_id not in view.allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, view.can_view(doc).reason)
+    by_number = {v.version: v for v in db.scalars(select(DocumentVersion).where(DocumentVersion.document_id == doc.id))}
+    if not by_number:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No versions recorded for this document")
+    to_v = to_version or max(by_number)
+    if to_v not in by_number:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Version {to_v} doesn't exist")
+    older = [n for n in by_number if n < to_v]
+    from_v = from_version if from_version is not None else (max(older) if older else None)
+    if from_v is None:
+        return ChangesOut(from_version=None, to_version=to_v, summary="This is the first version.", diff=None)
+    if from_v not in by_number or from_v >= to_v:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Pick an earlier version to compare with")
+    diff = diff_text(by_number[from_v].text, by_number[to_v].text)
+    summary = by_number[to_v].change_summary if from_v == to_v - 1 else ""
+    return ChangesOut(from_version=from_v, to_version=to_v, summary=summary, diff=diff.as_dict())
 
 
 @router.post("/documents/scan", response_model=ScanOut)
@@ -190,7 +281,7 @@ async def _read_upload(file: UploadFile) -> bytes:
     if len(data) > limit:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"Files are limited to {get_settings().max_upload_mb} MB")
     if not data:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The file is empty")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The file is empty")
     return data
 
 
@@ -203,6 +294,7 @@ async def upload(
     discoverable: bool = Form(True),
     owner_team_id: int | None = Form(None),
     share_team_ids: str | None = Form(None),
+    share_group_ids: str | None = Form(None),
     tags: str | None = Form(None),
     acknowledge_sensitivity: bool = Form(False),
     user: User = Depends(current_user),
@@ -212,9 +304,9 @@ async def upload(
     if team_id != user.team_id and not user.is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only upload documents for your own team")
     if db.get(Team, team_id) is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown team")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unknown team")
     if min_position is not None and not Position.INTERN <= min_position <= Position.EXECUTIVE:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "min_position must be between 1 and 6")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "min_position must be between 1 and 6")
 
     data = await _read_upload(file)
     filename = safe_filename(file.filename)
@@ -224,7 +316,7 @@ async def upload(
     except UnsupportedFile as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
     if not text.strip():
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No readable text found in this file")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "No readable text found in this file")
 
     result = scan(text)
     warning = None
@@ -258,6 +350,7 @@ async def upload(
         min_position=min_position,
         discoverable=discoverable,
         share_team_ids=_parse_ids(share_team_ids),
+        share_group_ids=_existing_groups(db, _parse_ids(share_group_ids)),
         tags=[t for t in (tags or "").split(",") if t.strip()] or None,
     )
     doc = ingest.document
@@ -279,7 +372,7 @@ async def upload(
         raise
     db.refresh(doc)
     return UploadOut(
-        document=document_out(doc, user, view.grants),
+        document=document_out(doc, viewer(db, user)),
         scan=ScanOut(suggested_classification=result.suggested, findings=result.findings, summary=doc.summary, tags=doc.tags),
         warning=warning,
     )
@@ -289,10 +382,16 @@ async def upload(
 def update_document(doc_id: int, body: DocumentUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
     view = access_view(db, user)
     doc = _visible_or_404(view, doc_id)
-    if not can_manage(user, doc, view.grants):
+    if not can_manage(user, doc, view.grants, view.groups):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can't change this document")
 
     changes = body.model_dump(exclude_unset=True)
+    synced_only = {"ai_enabled", "title", "tags", "summary"}
+    if doc.source_id is not None and set(changes) - synced_only:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Sharing for synced files is managed in their source; only AI access and labels can change here",
+        )
     if "title" in changes:
         doc.title = changes["title"]
     if "summary" in changes:
@@ -307,6 +406,8 @@ def update_document(doc_id: int, body: DocumentUpdate, user: User = Depends(curr
         doc.min_position = changes["min_position"]
     if "discoverable" in changes:
         doc.discoverable = changes["discoverable"]
+    if "ai_enabled" in changes:
+        doc.ai_enabled = changes["ai_enabled"]
     if doc.classification == Classification.RESTRICTED:
         doc.discoverable = False
     doc.updated_at = utcnow()  # sharing lives in another table, so bump this explicitly
@@ -315,6 +416,11 @@ def update_document(doc_id: int, body: DocumentUpdate, user: User = Depends(curr
         doc.shares = [s for s in doc.shares if s.team_id in wanted]
         have = {s.team_id for s in doc.shares}
         doc.shares += [DocumentShare(team_id=t) for t in sorted(wanted - have)]
+    if "share_group_ids" in changes:
+        wanted_groups = set(_existing_groups(db, changes["share_group_ids"]))
+        doc.group_shares = [g for g in doc.group_shares if g.group_id in wanted_groups]
+        have_groups = {g.group_id for g in doc.group_shares}
+        doc.group_shares += [DocumentGroupShare(group_id=g) for g in sorted(wanted_groups - have_groups)]
 
     audit.record(
         db,
@@ -329,23 +435,64 @@ def update_document(doc_id: int, body: DocumentUpdate, user: User = Depends(curr
     db.refresh(doc)
     if {"title", "tags"} & changes.keys():
         index_document(doc)
-    return document_out(doc, user, active_grant_ids(db, user), _pending_ids(db, user))
+    return document_out(doc, viewer(db, user), _pending_ids(db, user))
 
 
 @router.delete("/documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_document(doc_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     view = access_view(db, user)
     doc = _visible_or_404(view, doc_id)
-    if not can_manage(user, doc, view.grants):
+    if not can_manage(user, doc, view.grants, view.groups):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can't delete this document")
+    if doc.source_id is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Synced files are deleted in their source, then disappear here")
     audit.record(db, user, "document.delete", "document", doc.id, title=doc.title)
-    storage_key = doc.storage_key
-    db.delete(doc)
+    remove_document(db, doc)  # the stored file goes after the commit, if nothing else uses it
     db.commit()
-    unindex_document(doc_id)
-    # Blobs are shared by identical files; remove this one only if nothing else uses it.
-    if db.scalar(select(Document.id).where(Document.storage_key == storage_key).limit(1)) is None:
-        storage.delete(storage_key)
+
+
+@router.post("/documents/{doc_id}/versions", response_model=NewVersionOut)
+async def upload_new_version(
+    doc_id: int,
+    file: UploadFile = File(...),
+    acknowledge_sensitivity: bool = Form(False),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Replace an uploaded document's file with a new version; readers are told what changed."""
+    view = access_view(db, user)
+    doc = _visible_or_404(view, doc_id)
+    if not can_manage(user, doc, view.grants, view.groups):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can't change this document")
+    if doc.source_id is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Synced files get new versions in their source")
+    data = await _read_upload(file)
+    filename = safe_filename(file.filename)
+    try:
+        text = extract_text(filename, data)
+    except UnsupportedFile as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
+    if not text.strip():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "No readable text found in this file")
+    if storage.sha256(data) == doc.sha256:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This file is the same as the current version")
+    result = scan(text)
+    if rank(doc.classification) < rank(result.suggested) and not acknowledge_sensitivity:
+        found = ", ".join(f["label"].lower() for f in result.findings)
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {
+                "message": f"The new version looks {result.suggested.value} (found: {found}) "
+                f"but the document is {doc.classification}.",
+                "suggested_classification": result.suggested.value,
+                "findings": result.findings,
+            },
+        )
+    change = replace_content(db, doc, data=data, filename=filename, actor=user, text=text)
+    audit.record(db, user, "document.new_version", "document", doc.id, title=doc.title, version=doc.version, flags=result.flags)
+    db.commit()
+    db.refresh(doc)
+    return NewVersionOut(document=document_out(doc, viewer(db, user)), version=doc.version, change_summary=change.summary)
 
 
 @router.get("/recommendations", response_model=list[RecommendationOut])
@@ -353,6 +500,6 @@ def recommendations(limit: int = Query(6, ge=1, le=20), user: User = Depends(cur
     view = access_view(db, user)
     pending = _pending_ids(db, user)
     return [
-        RecommendationOut(document=document_out(r.document, user, view.grants, pending), score=r.score, reasons=r.reasons)
+        RecommendationOut(document=document_out(r.document, view, pending), score=r.score, reasons=r.reasons)
         for r in recommend(db, view, limit)
     ]

@@ -1,5 +1,6 @@
 import os
 import tempfile
+import uuid
 
 # Configure an isolated database and storage folder *before* the app is imported.
 _tmp = tempfile.mkdtemp(prefix="vaultmind-test-")
@@ -9,6 +10,7 @@ os.environ["VAULTMIND_ANTHROPIC_API_KEY"] = ""
 os.environ["VAULTMIND_JWT_SECRET"] = "test-secret-that-is-long-enough-for-hs256"
 os.environ["VAULTMIND_SEED_DEMO_DATA"] = "true"
 os.environ["VAULTMIND_ENV"] = "development"
+os.environ["VAULTMIND_SCHEDULER_ENABLED"] = "false"  # tests run background jobs explicitly
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -40,10 +42,23 @@ class FakeLLM:
         return call["system"] + "\n".join(m["content"] for m in call["messages"])
 
 
+def _stamp_head() -> None:
+    """The tables come straight from the models, so they're at the latest migration already."""
+    from alembic import command
+
+    from app.migrations import alembic_config
+
+    cfg = alembic_config()
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.stamp(cfg, "head")
+
+
 @pytest.fixture(autouse=True)
 def fresh_db():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
+    _stamp_head()
     with SessionLocal() as db:
         seed(db)
         rebuild_index(db)
@@ -53,6 +68,33 @@ def fresh_db():
     llm.set_llm(None)  # offline by default; tests opt in to the fake
     yield
     llm.reset_llm()
+
+
+@pytest.fixture
+def empty_database(tmp_path):
+    """An engine on a brand-new, empty database of the kind the suite runs on (SQLite, or
+    PostgreSQL when VAULTMIND_DATABASE_URL points there), for testing the migrations."""
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.engine import make_url
+
+    url = make_url(os.environ["VAULTMIND_DATABASE_URL"])
+    if url.get_backend_name() != "postgresql":
+        scratch = create_engine(f"sqlite:///{tmp_path}/scratch.db")
+        yield scratch
+        scratch.dispose()
+        return
+    name = f"vm_scratch_{uuid.uuid4().hex[:12]}"
+    server = create_engine(url, isolation_level="AUTOCOMMIT")
+    with server.connect() as conn:
+        conn.execute(text(f'CREATE DATABASE "{name}"'))
+    scratch = create_engine(url.set(database=name))
+    try:
+        yield scratch
+    finally:
+        scratch.dispose()
+        with server.connect() as conn:
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        server.dispose()
 
 
 @pytest.fixture

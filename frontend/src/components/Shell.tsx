@@ -1,15 +1,18 @@
-import { useEffect, useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { Suspense, useEffect, useState } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useApp } from "../state";
 import { ThemeToggle } from "../theme";
 import { Avatar, Ladder } from "./bits";
 import CommandPalette from "./CommandPalette";
+import { ErrorBoundary } from "./ErrorBoundary";
+import { NotificationBell } from "./NotificationBell";
 import { IconChat, IconInbox, IconLibrary, IconLogout, IconSearch, IconShield, IconSparkle } from "./icons";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
 export default function Shell() {
   const { user, signOut, inboxCount, meta } = useApp();
+  const { pathname } = useLocation();
   const [palette, setPalette] = useState(false);
 
   useEffect(() => {
@@ -59,6 +62,7 @@ export default function Shell() {
               </span>
             )}
           </NavLink>
+          <NotificationBell />
           {user.is_admin && (
             <NavLink to="/admin">
               <IconShield />
@@ -91,7 +95,13 @@ export default function Shell() {
         </div>
       </aside>
       <main className="main" id="main" tabIndex={-1}>
-        <Outlet />
+        {/* A page's code loads the first time it's opened; the sidebar stays put meanwhile, and
+            if a page fails, the others can still be opened from it. */}
+        <ErrorBoundary resetKey={pathname}>
+          <Suspense fallback={<div className="page" aria-busy="true" />}>
+            <Outlet />
+          </Suspense>
+        </ErrorBoundary>
       </main>
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
     </div>

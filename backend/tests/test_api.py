@@ -210,7 +210,7 @@ def test_admin_endpoints_and_audit_trail(client, login, doc_id):
     events = client.get("/api/admin/audit?action=document.view_denied", headers=login("dev")).json()
     assert events and events[0]["actor"] == "Aarav Mehta"
     stats = client.get("/api/admin/stats", headers=login("dev")).json()
-    assert stats["documents"] == 20 and stats["pending_requests"] == 2
+    assert stats["documents"] == 26 and stats["pending_requests"] == 2  # 20 uploaded + 6 synced from the demo drive
 
 
 def test_chat_is_rate_limited(client, login):

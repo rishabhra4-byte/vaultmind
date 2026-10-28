@@ -1,0 +1,7 @@
+Wi-Fi and printers
+
+Staff Wi-Fi: connect to "Northwind-Staff" and sign in with your company account. Guests use "Northwind-Guest"; reception has the weekly guest code.
+
+Printers are next to each pantry. Print jobs are held until you tap your badge on the printer, so nothing confidential sits in the tray.
+
+If Wi-Fi or a printer stops working, raise an IT ticket from the help portal or message #it-help.

@@ -13,7 +13,7 @@ import {
   timeAgo,
   usePageTitle,
 } from "../components/bits";
-import { IconFile, IconLock, IconSearch, IconUpload } from "../components/icons";
+import { IconCloud, IconFile, IconLock, IconSearch, IconUpload } from "../components/icons";
 import { useApp } from "../state";
 import type { Classification, Doc, ScanFinding } from "../types";
 
@@ -30,7 +30,8 @@ export default function Library() {
   const [docs, setDocs] = useState<Doc[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [q, setQ] = useState(params.get("q") ?? "");
-  const [team, setTeam] = useState("");
+  const [team, setTeam] = useState(params.get("team") ?? "");
+  const [src, setSrc] = useState(params.get("source") ?? "");
   const [cls, setCls] = useState<Classification | "">("");
   const [showLocked, setShowLocked] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -59,8 +60,12 @@ export default function Library() {
   }, [load, q]);
 
   useEffect(() => {
-    setParams(q.trim() ? { q: q.trim() } : {}, { replace: true });
-  }, [q, setParams]);
+    const next: Record<string, string> = {};
+    if (q.trim()) next.q = q.trim();
+    if (team) next.team = team;
+    if (src) next.source = src;
+    setParams(next, { replace: true });
+  }, [q, team, src, setParams]);
 
   // "/" focuses search, like most document tools
   useEffect(() => {
@@ -75,7 +80,10 @@ export default function Library() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const visible = docs?.filter((d) => !cls || d.classification === cls) ?? null;
+  // Where documents come from: uploaded here, or synced from a connected drive or folder.
+  const sources = [...new Map((docs ?? []).filter((d) => d.source).map((d) => [d.source!.id, d.source!])).values()];
+  const fromSource = (d: Doc) => !src || (src === "uploaded" ? !d.source : String(d.source?.id) === src);
+  const visible = docs?.filter((d) => (!cls || d.classification === cls) && fromSource(d)) ?? null;
   const count = (c: Classification) => docs?.filter((d) => d.classification === c).length ?? 0;
   const openable = visible?.filter((d) => d.access.allowed).length ?? 0;
 
@@ -95,7 +103,7 @@ export default function Library() {
         </button>
       </header>
 
-      <div className="filters">
+      <div className={`filters ${sources.length > 0 || src ? "with-source" : ""}`}>
         <label className="search-box">
           <IconSearch />
           <input
@@ -116,6 +124,17 @@ export default function Library() {
             </option>
           ))}
         </select>
+        {(sources.length > 0 || src) && (
+          <select value={src} onChange={(e) => setSrc(e.target.value)} aria-label="Filter by where documents come from">
+            <option value="">All sources</option>
+            <option value="uploaded">Uploaded to VaultMind</option>
+            {sources.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.label})
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       <div className="chip-row" role="group" aria-label="Filter by classification">
@@ -157,7 +176,7 @@ export default function Library() {
 
       {!failed && visible && visible.length === 0 && (
         <Empty title={q ? `Nothing matches “${q}”` : "No documents here yet"} icon={<IconSearch />}>
-          {q || cls || team ? (
+          {q || cls || team || src ? (
             <>
               Try fewer words, or{" "}
               <button
@@ -166,6 +185,7 @@ export default function Library() {
                   setQ("");
                   setCls("");
                   setTeam("");
+                  setSrc("");
                 }}
               >
                 <u>clear the filters</u>
@@ -195,6 +215,11 @@ export default function Library() {
                 <ClassTag value={d.classification} />
                 <TeamChip team={d.owner_team} />
                 {d.min_position > 1 && <span>{d.min_position_label} and above</span>}
+                {d.source && (
+                  <span className="source-chip" title={`Synced from ${d.source.name}`}>
+                    <IconCloud width={13} height={13} /> {d.source.label}
+                  </span>
+                )}
                 <span>Updated {timeAgo(d.updated_at)}</span>
               </div>
               <p className="doc-summary">{d.access.allowed ? d.summary : d.access.reason}</p>

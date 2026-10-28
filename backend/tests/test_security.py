@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import IntegrityError
 
 from app import storage
@@ -308,7 +308,7 @@ def test_audit_filter_treats_wildcards_literally(client, login):
 # ---------------------------------------------------------------- migrations
 
 
-def test_migrations_build_the_same_schema_as_the_models(tmp_path: Path):
+def test_migrations_build_the_same_schema_as_the_models(empty_database):
     from alembic import command
     from alembic.autogenerate import compare_metadata
     from alembic.migration import MigrationContext
@@ -316,7 +316,7 @@ def test_migrations_build_the_same_schema_as_the_models(tmp_path: Path):
     from app.database import Base
     from app.migrations import alembic_config
 
-    engine = create_engine(f"sqlite:///{tmp_path}/m.db")
+    engine = empty_database
     cfg = alembic_config()
     with engine.begin() as conn:
         cfg.attributes["connection"] = conn
@@ -326,28 +326,48 @@ def test_migrations_build_the_same_schema_as_the_models(tmp_path: Path):
     assert diff == [], diff
 
 
-def test_databases_from_version_1_are_upgraded_in_place(tmp_path: Path, monkeypatch):
-    """A 1.0 database (create_all, no migration history, no unique index) keeps its data."""
-    from app import migrations
-    from app.database import Base
+def test_databases_from_version_1_are_upgraded_in_place(empty_database, monkeypatch):
+    """A 1.0 database (made with create_all, so no migration history) keeps its data, and its
+    documents get their current text recorded as version 1."""
+    from alembic import command
 
-    engine = create_engine(f"sqlite:///{tmp_path}/old.db")
-    Base.metadata.create_all(engine)
-    with engine.begin() as conn:
-        conn.execute(text("DROP INDEX uq_one_pending_request"))
+    from app import migrations
+
+    engine = empty_database
+    cfg = migrations.alembic_config()
+    with engine.begin() as conn:  # the 1.0 schema...
+        cfg.attributes["connection"] = conn
+        command.upgrade(cfg, "0001")
+    with engine.begin() as conn:  # ...without its migration history, as 1.0 made it
+        conn.execute(text("DROP TABLE alembic_version"))
+        now = datetime.now(UTC)
         conn.execute(text("INSERT INTO teams (id, name, description) VALUES (1, 'Eng', '')"))
         conn.execute(
             text(
                 "INSERT INTO users (id, email, full_name, title, password_hash, team_id, position,"
-                " is_admin, is_active, created_at) VALUES (1, 'a@x', 'A', '', 'h', 1, 1, 0, 1, :now)"
+                " is_admin, is_active, created_at) VALUES (1, 'a@x', 'A', '', 'h', 1, 1, false, true, :now)"
             ),
-            {"now": datetime.now(UTC)},
+            {"now": now},
         )
+        conn.execute(
+            text(
+                "INSERT INTO documents (id, title, filename, mime_type, size, sha256, storage_key, owner_team_id,"
+                " classification, min_position, discoverable, summary, tags, sensitivity_flags, uploaded_by,"
+                " created_at, updated_at) VALUES (7, 'Guide', 'g.md', 'text/markdown', 10, 'abc', 'ab/abc', 1,"
+                " 'internal', 1, true, '', '[]', '[]', 1, :now, :now)"
+            ),
+            {"now": now},
+        )
+        conn.execute(text("INSERT INTO document_chunks (document_id, ordinal, text) VALUES (7, 0, 'First part.')"))
+        conn.execute(text("INSERT INTO document_chunks (document_id, ordinal, text) VALUES (7, 1, 'Second part.')"))
     monkeypatch.setattr(migrations, "engine", engine)
     migrations.upgrade_database()
     with engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0002"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0003"
         assert conn.execute(text("SELECT email FROM users")).scalar() == "a@x"
+        row = conn.execute(text("SELECT version, text FROM document_versions WHERE document_id = 7")).one()
+        assert row == (1, "First part.\n\nSecond part.")
+        assert conn.execute(text("SELECT acl_mode, ai_enabled, version FROM documents")).one() == ("native", 1, 1)
     assert "uq_one_pending_request" in {i["name"] for i in inspect(engine).get_indexes("access_requests")}
 
 

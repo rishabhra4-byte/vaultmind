@@ -6,7 +6,8 @@
 #   docker compose up --build
 #
 # For a public demo with the nine demo accounts, add VAULTMIND_SEED_DEMO_DATA=true to .env.
-# For a real install, leave it out and create an administrator and people:
+# For a real install, leave it out and create the first administrator (then add people on the
+# admin page, import them from a spreadsheet, or sync them from Google / Microsoft):
 #   docker compose exec app python -m app.cli create-admin --email you@company.com --name "Your Name"
 #   docker compose exec app python -m app.cli create-user --email ... --name ... --team ... --position senior
 # See "Deploying for real" in the README.
@@ -25,6 +26,26 @@ services:
       VAULTMIND_SEED_DEMO_DATA: ${VAULTMIND_SEED_DEMO_DATA:-false}
       VAULTMIND_ANTHROPIC_API_KEY: ${VAULTMIND_ANTHROPIC_API_KEY:-}
       VAULTMIND_HSTS: ${VAULTMIND_HSTS:-false}
+      VAULTMIND_PUBLIC_URL: ${VAULTMIND_PUBLIC_URL:-}
+      # Optional connections (docs/integrations.md). Unset ones stay off.
+      VAULTMIND_FOLDER_ROOTS: ${VAULTMIND_FOLDER_ROOTS:-[]}
+      VAULTMIND_GOOGLE_SERVICE_ACCOUNT_FILE: ${VAULTMIND_GOOGLE_SERVICE_ACCOUNT_FILE:-}
+      VAULTMIND_GOOGLE_ADMIN_EMAIL: ${VAULTMIND_GOOGLE_ADMIN_EMAIL:-}
+      VAULTMIND_GOOGLE_CLIENT_ID: ${VAULTMIND_GOOGLE_CLIENT_ID:-}
+      VAULTMIND_GOOGLE_CLIENT_SECRET: ${VAULTMIND_GOOGLE_CLIENT_SECRET:-}
+      VAULTMIND_GOOGLE_ALLOWED_DOMAINS: ${VAULTMIND_GOOGLE_ALLOWED_DOMAINS:-[]}
+      VAULTMIND_MICROSOFT_TENANT_ID: ${VAULTMIND_MICROSOFT_TENANT_ID:-}
+      VAULTMIND_MICROSOFT_CLIENT_ID: ${VAULTMIND_MICROSOFT_CLIENT_ID:-}
+      VAULTMIND_MICROSOFT_CLIENT_SECRET: ${VAULTMIND_MICROSOFT_CLIENT_SECRET:-}
+      VAULTMIND_MICROSOFT_SSO: ${VAULTMIND_MICROSOFT_SSO:-false}
+      VAULTMIND_PASSWORD_LOGIN: ${VAULTMIND_PASSWORD_LOGIN:-true}
+      VAULTMIND_SMTP_HOST: ${VAULTMIND_SMTP_HOST:-}
+      VAULTMIND_SMTP_PORT: ${VAULTMIND_SMTP_PORT:-587}
+      VAULTMIND_SMTP_USERNAME: ${VAULTMIND_SMTP_USERNAME:-}
+      VAULTMIND_SMTP_PASSWORD: ${VAULTMIND_SMTP_PASSWORD:-}
+      VAULTMIND_SMTP_FROM: ${VAULTMIND_SMTP_FROM:-}
+      VAULTMIND_SLACK_BOT_TOKEN: ${VAULTMIND_SLACK_BOT_TOKEN:-}
+      VAULTMIND_SLACK_SIGNING_SECRET: ${VAULTMIND_SLACK_SIGNING_SECRET:-}
       # Behind a reverse proxy, set this to the proxy's address so uvicorn trusts its
       # X-Forwarded-For header and sign-in limits see each person's real address.
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1,::1}

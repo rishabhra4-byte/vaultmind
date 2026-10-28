@@ -85,7 +85,97 @@ const focusInfo = (page) =>
 
     await check('names: every button, link and form field has an accessible name', async () => {
       const unnamed = [];
-      for (const p of ['/', '/library', '/library/6', '/requests']) {
+      for (const p of ['/', '/library', '/library/6', '/library/6#ask', '/requests', '/#notifications']) {
+        await page.goto(BASE + p.split('#')[0]);
+        await page.waitForLoadState('networkidle');
+        if (p.endsWith('#ask')) {
+          await page.click('button:has-text("Ask about this document")');
+          await page.waitForSelector('.ask-drawer');
+        }
+        if (p.endsWith('#notifications')) {
+          await page.click('button.nav-btn');
+          await page.waitForSelector('.notif-panel');
+        }
+        const found = await page.evaluate(() =>
+          [...document.querySelectorAll('button, a[href], input, select, textarea, [role="button"]')]
+            .filter((el) => el.offsetParent !== null || el.getClientRects().length)
+            .filter((el) => {
+              const label = el.getAttribute('aria-label') || el.getAttribute('aria-labelledby') || el.getAttribute('title');
+              const text = (el.textContent || '').trim();
+              const labelled = el.id && document.querySelector(`label[for="${el.id}"]`);
+              const wrapped = el.closest('label');
+              return !label && !text && !labelled && !wrapped && !(el.tagName === 'INPUT' && el.placeholder);
+            })
+            .map((el) => el.outerHTML.slice(0, 80)),
+        );
+        unnamed.push(...found.map((f) => `${p}: ${f}`));
+      }
+      return unnamed.length === 0 || unnamed.join('\n');
+    });
+
+    await check('keyboard: the notifications panel takes focus, and Esc gives it back to the bell', async () => {
+      await page.goto(BASE + '/');
+      await page.focus('button.nav-btn');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.notif-panel');
+      const inside = await page.evaluate(() => !!document.activeElement?.closest('.notif-panel'));
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.notif-panel', { state: 'detached' });
+      const back = await page.evaluate(() => document.activeElement?.classList.contains('nav-btn'));
+      return (inside && back) || `inside: ${inside}, back on the bell: ${back}`;
+    });
+
+    await check('keyboard: the "Ask about this document" panel takes focus, and Esc gives it back', async () => {
+      await page.goto(BASE + '/library/6');
+      await page.focus('button:has-text("Ask about this document")');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.ask-drawer');
+      const inside = await page.evaluate(() => document.activeElement?.getAttribute('aria-label'));
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.ask-drawer', { state: 'detached' });
+      await page.waitForTimeout(100);
+      const back = await page.evaluate(() => document.activeElement?.textContent?.includes('Ask about this document'));
+      return (inside === 'Question about this document' && back) || `focus in panel: ${inside}, back: ${back}`;
+    });
+
+    // Snapshots of what assistive technology is given, for manual review.
+    const pages = [
+      ['assistant-answer', '/', async () => {
+        await page.click('.starter >> nth=2');
+        await page.waitForSelector('.msg-tools');
+      }],
+      ['library', '/library', () => page.waitForSelector('.doc-row')],
+      ['document', '/library/6', () => page.waitForSelector('.paper')],
+      ['locked-document', '/library/14', () => page.waitForSelector('.sealed-lg')],
+      ['requests', '/requests', () => page.waitForSelector('h1')],
+      ['document-ask', '/library/6', async () => {
+        await page.click('button:has-text("Ask about this document")');
+        await page.click('.ask-quick button:has-text("Key points")');
+        await page.waitForSelector('.ask-drawer .msg-tools');
+      }],
+      ['notifications', '/', async () => {
+        await page.click('button.nav-btn');
+        await page.waitForSelector('.notif-panel');
+      }],
+    ];
+    for (const [name, url, ready] of pages) {
+      await page.goto(BASE + url);
+      await ready();
+      fs.writeFileSync(path.join(OUT, `${name}.yml`), await page.locator('body').ariaSnapshot());
+    }
+    await page.close();
+  }
+
+  // ---- admin pages
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.goto(BASE + '/signin');
+    await page.click('.persona:has-text("Dev Patel")');
+    await page.waitForSelector('.sidebar');
+    const adminPages = ['/admin', '/admin/people', '/admin/teams', '/admin/groups', '/admin/sources', '/admin/glossary', '/admin/activity'];
+    await check('names: every control on the admin pages has an accessible name', async () => {
+      const unnamed = [];
+      for (const p of adminPages) {
         await page.goto(BASE + p);
         await page.waitForLoadState('networkidle');
         const found = await page.evaluate(() =>
@@ -104,21 +194,25 @@ const focusInfo = (page) =>
       }
       return unnamed.length === 0 || unnamed.join('\n');
     });
-
-    // Snapshots of what assistive technology is given, for manual review.
-    const pages = [
-      ['assistant-answer', '/', async () => {
-        await page.click('.starter >> nth=2');
-        await page.waitForSelector('.msg-tools');
-      }],
-      ['library', '/library', () => page.waitForSelector('.doc-row')],
-      ['document', '/library/6', () => page.waitForSelector('.paper')],
-      ['locked-document', '/library/14', () => page.waitForSelector('.sealed-lg')],
-      ['requests', '/requests', () => page.waitForSelector('h1')],
-    ];
-    for (const [name, url, ready] of pages) {
+    await check('keyboard: the "Connect a source" dialog keeps focus inside and returns it on Esc', async () => {
+      await page.goto(BASE + '/admin/sources');
+      await page.focus('button:has-text("Connect a source")');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('dialog.modal[open]');
+      let escaped = false;
+      for (let i = 0; i < 40; i++) {
+        await page.keyboard.press('Tab');
+        const inside = await page.evaluate(() => !!document.activeElement?.closest('dialog[open]') || document.activeElement === document.body);
+        if (!inside) escaped = true;
+      }
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(200);
+      const back = await page.evaluate(() => document.activeElement?.textContent?.trim());
+      return (!escaped && back?.includes('Connect a source')) || `focus escaped: ${escaped}, focus after close: ${back}`;
+    });
+    for (const [name, url] of [['admin-overview', '/admin'], ['admin-people', '/admin/people'], ['admin-sources', '/admin/sources']]) {
       await page.goto(BASE + url);
-      await ready();
+      await page.waitForLoadState('networkidle');
       fs.writeFileSync(path.join(OUT, `${name}.yml`), await page.locator('body').ariaSnapshot());
     }
     await page.close();
@@ -142,10 +236,17 @@ const focusInfo = (page) =>
     await page.goto(BASE + '/signin');
     await page.click('.persona:has-text("Rohan Iyer")');
     await page.waitForSelector('.sidebar, .topbar');
-    for (const url of ['/library', '/library/6', '/requests']) {
-      await page.goto(BASE + url);
+    for (const url of ['/library', '/library/6', '/requests', 'admin:/admin/people', 'admin:/admin/sources']) {
+      if (url.startsWith('admin:') && !page.__admin) {
+        await page.evaluate(() => localStorage.removeItem('vaultmind.token'));
+        await page.goto(BASE + '/signin');
+        await page.click('.persona:has-text("Dev Patel")');
+        await page.waitForSelector('.sidebar, .topbar');
+        page.__admin = true;
+      }
+      await page.goto(BASE + url.replace('admin:', ''));
       await page.waitForLoadState('networkidle');
-      await check(`focus not obscured: every Tab stop on ${url} at ${width}px is at least partly visible`, async () => {
+      await check(`focus not obscured: every Tab stop on ${url.replace('admin:', '')} at ${width}px is at least partly visible`, async () => {
         const hidden = [];
         for (let i = 0; i < 45; i++) {
           await page.keyboard.press('Tab');

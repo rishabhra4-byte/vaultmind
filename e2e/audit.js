@@ -29,19 +29,42 @@ async function check(name, fn) {
   }
 }
 
+// How each engine reports a request the browser itself cancelled (Chromium, Firefox, WebKit).
+const CANCELLED = /^(net::ERR_ABORTED|NS_BINDING_ABORTED|Load request cancelled|cancelled)$/;
+
 function watch(page, tag) {
+  // The audit moves on as soon as a check passes, so it often loads the next page while the
+  // last one is still fetching. The browser cancels those requests; that's not a problem in
+  // the app. A cancelled request counts only if the page didn't navigate after it started.
+  let navigations = 0;
+  const startedAfter = new WeakMap();
+  page.on('request', (r) => {
+    let leavesPage = false;
+    try {
+      leavesPage = r.isNavigationRequest() && r.frame() === page.mainFrame();
+    } catch {} // requests without a frame (service workers) can't navigate the page
+    if (leavesPage) navigations++;
+    startedAfter.set(r, navigations);
+  });
   page.on('pageerror', (e) => problems.push(`[${tag}] page error: ${e.message}`));
   page.on('console', (m) => {
+    if (page.__expectFailures) return; // a check that breaks things on purpose
     if (m.type() === 'error' && !/fonts\.g|ERR_TUNNEL|net::ERR_FAILED|Failed to load resource: the server responded with a status of (401|403|404|409|422|429)/.test(m.text()))
       problems.push(`[${tag}] console: ${m.text().slice(0, 200)}`);
   });
   page.on('requestfailed', async (r) => {
     if (/fonts\.g/.test(r.url()) || page.__expectFailures) return;
+    const error = r.failure()?.errorText ?? '';
+    if (CANCELLED.test(error)) {
+      // Engines report the cancellations and the navigation that caused them in either order.
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (navigations > (startedAfter.get(r) ?? navigations)) return;
+    }
     // Chromium reports bodiless 204 responses as "aborted"; only count real failures.
     const resp = await r.response().catch(() => null);
     if (resp && resp.status() === 204) return;
-    if (r.failure()?.errorText === 'net::ERR_ABORTED' && r.method() === 'DELETE') return;
-    problems.push(`[${tag}] request failed: ${r.method()} ${r.url()} ${r.failure()?.errorText}`);
+    if (error === 'net::ERR_ABORTED' && r.method() === 'DELETE') return;
+    problems.push(`[${tag}] request failed: ${r.method()} ${r.url()} ${error}`);
   });
   page.on('response', (r) => {
     if (r.status() >= 500) problems.push(`[${tag}] HTTP ${r.status()} ${r.url()}`);
@@ -164,18 +187,23 @@ async function signOut(page) {
     });
     await check('sign-in: deep link while signed out redirects to sign-in', async () => {
       await p.goto(BASE + '/library/3');
-      await p.waitForURL(/\/signin$/);
+      await p.waitForURL(/\/signin\?next=%2Flibrary%2F3$/);
     });
-    await check('sign-in: typed credentials work', async () => {
+    await check('sign-in: typed credentials work and return to the page that was asked for', async () => {
       await p.fill('input[type=email]', 'ROHAN@northwind.example ');
       await p.fill('input[type=password]', 'demo1234');
       await p.click('form button:has-text("Sign in")');
       await p.waitForSelector('.sidebar');
+      await p.waitForURL(/\/library\/3$/);
+    });
+    await check('sign-in: a return address on another site is ignored', async () => {
+      await p.goto(BASE + '/signin?next=' + encodeURIComponent('https://evil.example/'));
+      await p.waitForURL((u) => u.pathname === '/' && u.host === new URL(BASE).host);
     });
     await check('session: corrupted token signs you out cleanly', async () => {
       await p.evaluate(() => localStorage.setItem('vaultmind.token', 'garbage'));
       await p.reload();
-      await p.waitForURL(/\/(signin)?$/);
+      await p.waitForURL(/\/(signin(\?next=[^#]*)?)?$/);
       return (await p.$('.sidebar')) === null;
     });
     await p.context().close();
@@ -186,6 +214,11 @@ async function signOut(page) {
     const p = await newPage(browser, 'aarav');
     await signIn(p, 'Aarav Mehta');
     await check('assistant: empty state shows four starter prompts', async () => (await p.$$('.starter')).length === 4);
+    await check('first week: a new joiner sees the checklist, nothing ticked yet', async () => {
+      await p.waitForSelector('.first-week');
+      const items = await p.$$eval('.first-week li', (els) => els.map((e) => e.className));
+      return (items.length >= 4 && items.every((c) => !c.includes('done'))) || items.join(',');
+    });
     await check('assistant: send button disabled for empty message', async () => p.isDisabled('.composer button'));
     await check('assistant: starter prompt gets an answer with locked hint', async () => {
       await p.click('.starter:has-text("salary bands")');
@@ -194,22 +227,27 @@ async function signOut(page) {
     });
     await check('assistant: locked hint never reveals salary figures', async () => !(await p.textContent('.chat-scroll')).includes('22 to 34'));
     await check('assistant: copy button copies the answer', async () => {
-      await p.click('.msg-tools button');
+      await p.click('.msg-tools button[aria-label="Copy answer"]');
       if (!IS_CHROMIUM) return true; // clipboard permissions can only be granted to Chromium in automation
       await toast(p, 'Answer copied');
       const clip = await p.evaluate(() => navigator.clipboard.readText());
       return (clip.length > 20 && !clip.includes('[D')) || clip;
     });
-    await check('assistant: request access validates reason length', async () => {
+    await check('assistant: request access opens a card with the question as the starting reason', async () => {
       await p.click('.sealed:has-text("Salary Bands") button:has-text("Request access")');
-      await p.fill('dialog textarea', 'short');
-      const disabled = await p.isDisabled('dialog button:has-text("Send request")');
-      return disabled;
+      await p.waitForSelector('.sealed .action-card textarea');
+      const reason = await p.inputValue('.sealed .action-card textarea');
+      const focused = await p.evaluate(() => document.activeElement?.tagName === 'TEXTAREA');
+      return (reason.includes('salary bands') && focused) || `${reason} / focused ${focused}`;
     });
-    await check('assistant: request access sends and marks the hint pending', async () => {
-      await p.fill('dialog textarea', 'Preparing for my conversion interview and want to understand the SDE-1 band.');
-      await p.click('dialog button:has-text("Send request")');
-      await toast(p, 'Request sent');
+    await check('assistant: request access validates reason length', async () => {
+      await p.fill('.sealed .action-card textarea', 'short');
+      return p.isDisabled('.sealed .action-card button:has-text("Send request")');
+    });
+    await check('assistant: request access sends only when confirmed, and marks the hint pending', async () => {
+      await p.fill('.sealed .action-card textarea', 'Preparing for my conversion interview and want to understand the SDE-1 band.');
+      await p.click('.sealed .action-card button:has-text("Send request")');
+      await toast(p, 'Asked for access');
       await p.waitForSelector('.sealed:has-text("Salary Bands") .pill:has-text("Request pending")');
     });
     await check('assistant: Enter sends a typed question, Shift+Enter makes a new line', async () => {
@@ -222,12 +260,15 @@ async function signOut(page) {
       await p.keyboard.press('Enter');
       await p.waitForSelector('.msg-assistant:has-text("24 days")', { timeout: 10000 });
     });
-    await check('assistant: citation number links to the document', async () => {
+    await check('assistant: citation number opens the document at the cited paragraph', async () => {
       await p.waitForSelector('.msg-tools >> nth=1');
-      const link = p.locator('.msg-assistant .cite').last();
+      // The leave answer's first source is the handbook paragraph that gives the number of days.
+      const link = p.locator('.msg-assistant').last().locator('.cite[href*="#p"]').first();
       await link.click();
-      await p.waitForURL(/\/library\/\d+$/);
+      await p.waitForURL(/\/library\/\d+#p\d+$/);
       await p.waitForSelector('.doc-hero h1');
+      await p.waitForSelector('.passage.hl');
+      return (await p.textContent('.passage.hl')).includes('24 days');
     });
     await check('assistant: conversation list reopens a past conversation', async () => {
       await p.click('nav >> text=Assistant');
@@ -238,6 +279,10 @@ async function signOut(page) {
     await check('assistant: "New conversation" clears the chat', async () => {
       await p.click('.threads button:has-text("New conversation")');
       await p.waitForSelector('.chat-empty');
+    });
+    await check('first week: asking a question and reading ticks steps off', async () => {
+      await p.waitForSelector('.first-week li.done:has-text("Ask VaultMind a question")');
+      return (await p.$$('.first-week li.done')).length >= 2 || 'only one step ticked';
     });
     await check('assistant: deleting a conversation removes it', async () => {
       const before = (await p.$$('.threads li')).length;
@@ -472,11 +517,39 @@ async function signOut(page) {
       await p.waitForURL(/\/library\?q=/);
       await p.waitForSelector('.doc-row');
     });
-    await check('doc: "Ask the assistant about this" asks about the document', async () => {
+    await check('doc: ask about this document: a quick action answers from it, citing paragraphs', async () => {
       await p.goto(BASE + '/library/6');
-      await p.click('button:has-text("Ask the assistant about this")');
-      await p.waitForSelector('.msg-user:has-text("Backend Onboarding Guide")');
-      await p.waitForSelector('.msg-tools', { timeout: 10000 });
+      await p.click('button:has-text("Ask about this document")');
+      await p.waitForSelector('.ask-drawer');
+      const focused = await p.evaluate(() => document.activeElement?.getAttribute('aria-label'));
+      await p.click('.ask-quick button:has-text("Key points")');
+      await p.waitForSelector('.ask-drawer .msg-tools', { timeout: 10000 });
+      const hrefs = await p.$$eval('.ask-drawer .msg-assistant .cite', (els) => els.map((e) => e.getAttribute('href')));
+      const paragraphs = hrefs.filter((h) => /^\/library\/6#p\d+$/.test(h));
+      return (focused === 'Question about this document' && paragraphs.length > 0 && hrefs.every((h) => h.startsWith('/library/6'))) || `${focused} / ${hrefs}`;
+    });
+    await check('doc: a paragraph citation in the panel marks that paragraph', async () => {
+      await p.click('.ask-drawer .msg-assistant .cite[href*="#p"] >> nth=0');
+      await p.waitForSelector('.passage.hl');
+    });
+    await check('doc: the panel keeps the conversation, and Esc closes it', async () => {
+      await p.keyboard.press('Escape');
+      await p.waitForSelector('.ask-drawer', { state: 'detached' });
+      await p.click('button:has-text("Ask about this document")');
+      await p.waitForSelector('.ask-drawer .msg-user:has-text("key points")');
+      await p.click('.ask-drawer button[aria-label="Close the assistant panel"]');
+      await p.waitForTimeout(150);
+      return (await p.evaluate(() => document.activeElement?.textContent?.includes('Ask about this document'))) || 'focus not returned';
+    });
+    await check('library: source filter shows only files synced from that source', async () => {
+      await p.goto(BASE + '/library');
+      await p.waitForSelector('.doc-row');
+      await p.selectOption('select[aria-label="Filter by where documents come from"]', { label: 'Shared drive (demo) (Shared folder)' });
+      await p.waitForTimeout(300);
+      const rows = await p.$$eval('.doc-row', (els) => els.map((e) => !!e.querySelector('.source-chip')));
+      const url = p.url();
+      await p.selectOption('select[aria-label="Filter by where documents come from"]', '');
+      return (rows.length > 0 && rows.every(Boolean) && url.includes('source=')) || `${rows} ${url}`;
     });
     await check('doc: access settings save and update who can open it', async () => {
       await p.goto(BASE + '/library/8'); // API Design Guidelines, internal Engineering
@@ -487,6 +560,31 @@ async function signOut(page) {
       await p.click('button:has-text("Save access settings")');
       await toast(p, 'Access settings saved');
       await p.waitForFunction((b) => document.querySelectorAll('.who li').length > b, before);
+    });
+    fs.writeFileSync(`${TMP}/team-offsite-v2.md`, '# Team offsite plan\n\nThe engineering offsite is in Coorg on 14 December. Buses leave the office at 7am.\n');
+    await check('doc: a new version is saved, and what changed is shown', async () => {
+      await p.goto(BASE + '/library');
+      await p.click('.doc-row:has-text("Team Offsite Plan") .doc-title');
+      await p.click('button:has-text("Upload a new version")');
+      await p.setInputFiles('dialog input[type=file]', `${TMP}/team-offsite-v2.md`);
+      await p.click('dialog button:has-text("Upload new version")');
+      await toast(p, 'Saved version 2');
+      await p.waitForFunction(() => document.querySelectorAll('.versions li').length === 2);
+      await p.click('button:has-text("See what changed")');
+      await p.waitForSelector('dialog .diff ins');
+      const t = await p.textContent('dialog .diff');
+      await p.click('dialog button[aria-label="Close"]');
+      return (t.includes('12 December') && t.includes('14 December')) || t;
+    });
+    await check('doc: managers can keep a document away from the AI, and allow it again', async () => {
+      const aiSwitch = 'label:has-text("Let the assistant read this document")';
+      await p.click(aiSwitch);
+      await toast(p, "won't read");
+      const off = await p.isChecked(`${aiSwitch} input`);
+      await p.click(aiSwitch);
+      await toast(p, 'can read this document again');
+      const on = await p.isChecked(`${aiSwitch} input`);
+      return (!off && on) || `${off} ${on}`;
     });
     await check('doc: delete asks for confirmation; "Keep it" cancels', async () => {
       await p.goto(BASE + '/library');
@@ -529,6 +627,28 @@ async function signOut(page) {
   await block('requester', async () => {
     const p = await newPage(browser, 'karan');
     await signIn(p, 'Karan Singh');
+    await check('notifications: the bell shows an unread change to a document Karan reads', async () => {
+      await p.waitForSelector('button.nav-btn .count');
+      await p.click('button.nav-btn');
+      await p.waitForSelector('.notif-panel .notif.unread:has-text("Expense Reimbursement Policy")');
+      return p.evaluate(() => document.activeElement?.classList.contains('notif-panel'));
+    });
+    await check('notifications: opening one shows what changed, and marks it read', async () => {
+      await p.click('.notif-panel .notif:has-text("Expense Reimbursement Policy")');
+      await p.waitForURL(/\/library\/\d+\?changes=1$/);
+      await p.waitForSelector('dialog .diff');
+      const t = await p.textContent('dialog .diff');
+      await p.click('dialog button[aria-label="Close"]');
+      await p.waitForSelector('button.nav-btn .count', { state: 'detached', timeout: 5000 }).catch(() => {});
+      return (t.includes('INR 7,000') && t.includes('INR 6,000')) || t;
+    });
+    await check('notifications: Esc closes the panel and returns focus to the bell', async () => {
+      await p.click('button.nav-btn');
+      await p.waitForSelector('.notif-panel');
+      await p.keyboard.press('Escape');
+      await p.waitForSelector('.notif-panel', { state: 'detached' });
+      return p.evaluate(() => document.activeElement?.classList.contains('nav-btn'));
+    });
     await check('requests: requester can cancel a pending request', async () => {
       await p.click('nav >> text=Access requests');
       await p.click('.req:has-text("Salary Bands") button:has-text("Cancel request")');
@@ -557,7 +677,13 @@ async function signOut(page) {
       const vals = await p.$$eval('.figure dd', (els) => els.map((e) => e.textContent));
       return vals.length === 4 && vals.every((v) => /\d/.test(v)) ? true : vals.join('|');
     });
+    await check('admin: insights list what people asked, without names', async () => {
+      await p.waitForSelector('.insights');
+      const t = await p.textContent('.insights');
+      return (/\d+ questions/.test(t) && t.includes('salary bands') && !t.includes('Aarav')) || t.slice(0, 200);
+    });
     await check('admin: activity filter shows only refused opens', async () => {
+      await p.click('.admin-tabs >> text=Activity');
       await p.selectOption('select[aria-label="Filter activity"]', 'document.view_denied');
       await p.waitForSelector('.audit li.denied');
       const all = await p.$$eval('.audit li', (els) => els.every((e) => e.classList.contains('denied')));
@@ -570,6 +696,8 @@ async function signOut(page) {
         ([r]) => r.ok() || `HTTP ${r.status()}`,
       );
     await check('admin: changing a position saves', async () => {
+      await p.click('.admin-tabs >> text=People');
+      await p.waitForSelector('select[aria-label="Position for Aarav Mehta"]');
       const a = await saved(() => p.selectOption('select[aria-label="Position for Aarav Mehta"]', { label: 'Associate' }));
       const b = await saved(() => p.selectOption('select[aria-label="Position for Aarav Mehta"]', { label: 'Intern' }));
       await toast(p, 'Updated Aarav Mehta');
@@ -583,6 +711,75 @@ async function signOut(page) {
       await p.waitForFunction(() => document.querySelector('input[aria-label="Neha Kapoor is active"]').checked);
       return (a === true && b === true) || `${a} / ${b}`;
     });
+    await check('admin: add a person who signs in with a password', async () => {
+      await p.click('button:has-text("Add a person")');
+      await p.fill('dialog label:has-text("Full name") input', 'Zara Ali');
+      await p.fill('dialog input[type=email]', 'zara@northwind.example');
+      await p.fill('dialog label:has-text("Job title") input', 'Account Executive');
+      await p.selectOption('dialog label:has-text("Team") select', { label: 'Sales' });
+      await p.fill('dialog input[aria-label="Starting password"]', 'a-long-password');
+      await p.click('dialog button:has-text("Add person")');
+      await toast(p, 'Added Zara Ali');
+      await p.waitForSelector('tr:has-text("zara@northwind.example") .pill:has-text("First week")');
+      const r = await fetch(`${BASE}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'zara@northwind.example', password: 'a-long-password' }) });
+      return r.ok || `sign-in ${r.status}`;
+    });
+    fs.writeFileSync(`${TMP}/people.csv`, 'email,name,title,team,position\nomar@northwind.example,Omar Khan,Designer,Design,Associate\nnot-an-email,X,,Sales,\n');
+    await check('admin: import preview shows problems, and nothing is saved until they are fixed', async () => {
+      await p.click('button:has-text("Import from a spreadsheet")');
+      await p.setInputFiles('dialog input[type=file]', `${TMP}/people.csv`);
+      await p.click('dialog button:has-text("Preview")');
+      await p.waitForSelector('.import-preview');
+      const t = await p.textContent('.import-preview');
+      const blocked = await p.isDisabled('dialog button:has-text("Import")');
+      await p.click('dialog button:has-text("Cancel")');
+      const saved = await p.$('tr:has-text("omar@northwind.example")');
+      return (t.includes('2 with problems') && blocked && saved === null) || `${t} / ${blocked}`;
+    });
+    await check('admin: create a group with a member', async () => {
+      await p.click('.admin-tabs >> text=Groups');
+      await p.click('button:has-text("New group")');
+      await p.fill('dialog label:has-text("Name") input', 'Launch crew');
+      await p.fill('dialog input[aria-label="Find people"]', 'Karan');
+      await p.click('dialog .member-picker label:has-text("Karan Singh")');
+      await p.click('dialog button:has-text("Save")');
+      await toast(p, 'Created Launch crew');
+      await p.waitForSelector('.list-card:has-text("Launch crew"):has-text("1 member")');
+    });
+    await check('admin: teams can be added, renamed and deleted when empty', async () => {
+      await p.click('.admin-tabs >> text=Teams');
+      await p.click('button:has-text("Add a team")');
+      await p.fill('dialog label:has-text("Name") input', 'Design');
+      await p.click('dialog button:has-text("Save")');
+      await p.waitForSelector('tr:has-text("Design")');
+      await p.click('button[aria-label="Delete Design"]');
+      await p.click('dialog button:has-text("Delete team")');
+      await toast(p, 'Deleted Design');
+      return (await p.isDisabled('button[aria-label="Delete Sales"]')) || 'a team with people could be deleted';
+    });
+    await check('admin: the demo drive is synced, and "Sync now" runs again', async () => {
+      await p.click('.admin-tabs >> text=Sources');
+      await p.waitForSelector('.source-card:has-text("Shared drive (demo)") .status:has-text("Synced")');
+      await p.click('.source-card:has-text("Shared drive (demo)") button:has-text("Sync now")');
+      await toast(p, 'Syncing');
+      await p.waitForSelector('.source-card:has-text("Shared drive (demo)") .status:has-text("Synced")', { timeout: 15000 });
+    });
+    await check('admin: Google and Microsoft say they need setting up first', async () => {
+      await p.click('button:has-text("Connect a source")');
+      const t = await p.textContent('dialog .kind-picker');
+      const disabled = await p.isDisabled('dialog input[type=radio] >> nth=1');
+      await p.click('dialog button:has-text("Cancel")');
+      return (t.includes('Not set up on this server yet') && disabled) || t;
+    });
+    await check('admin: a glossary term is added', async () => {
+      await p.click('.admin-tabs >> text=Glossary');
+      await p.click('button:has-text("Add a term")');
+      await p.fill('dialog label:has-text("Term") input', 'Spend policy');
+      await p.fill('dialog label:has-text("Other words") input', 'expense, reimbursement');
+      await p.click('dialog button:has-text("Save")');
+      await toast(p, 'Spend policy');
+      await p.waitForSelector('.list-card:has-text("Spend policy")');
+    });
     await p.context().close();
   });
 
@@ -591,6 +788,19 @@ async function signOut(page) {
     const p = await newPage(browser, 'failures');
     await signIn(p, 'Neha Kapoor');
     p.__expectFailures = true;
+    await check('offline: a page whose code fails to download offers a reload; the rest of the app still works', async () => {
+      await p.route('**/assets/Requests-*.js', (r) => r.abort());
+      await p.click('nav >> text=Access requests');
+      await p.waitForSelector('.not-found[role=alert]:has-text("This page didn\'t load")', { timeout: 10000 });
+      const sidebar = await p.isVisible('.sidebar nav');
+      await p.click('nav >> text=Assistant');
+      await p.waitForSelector('.composer textarea');
+      await p.unroute('**/assets/Requests-*.js');
+      await p.click('nav >> text=Access requests');
+      await p.click('.not-found[role=alert] button:has-text("Reload")'); // the failed download is remembered until a reload
+      await p.waitForSelector('h1:has-text("Access requests")');
+      return sidebar || 'the sidebar disappeared with the page';
+    });
     await check('offline: library shows a retry state when the API is unreachable', async () => {
       await p.route('**/api/documents?*', (r) => r.abort());
       await p.click('nav >> text=Library');
@@ -647,7 +857,18 @@ async function signOut(page) {
     ['library', '/library', 'Rohan Iyer'],
     ['document', '/library/6', 'Rohan Iyer'],
     ['requests', '/requests', 'Rohan Iyer'],
+    ['document-ask', '/library/6', 'Rohan Iyer', async (p) => {
+      await p.click('button:has-text("Ask about this document")');
+      await p.waitForSelector('.ask-drawer');
+    }],
+    ['notifications', '/', 'Karan Singh', async (p) => {
+      await p.click('button.nav-btn');
+      await p.waitForSelector('.notif-panel');
+    }],
     ['admin', '/admin', 'Dev Patel'],
+    ['admin-people', '/admin/people', 'Dev Patel'],
+    ['admin-sources', '/admin/sources', 'Dev Patel'],
+    ['admin-glossary', '/admin/glossary', 'Dev Patel'],
   ];
   const axeFindings = new Map();
   // One session per person, reused across screen sizes, so the sweep stays fast.
@@ -683,7 +904,7 @@ async function signOut(page) {
           await p.goto(url);
         }
       };
-      for (const [i, [name, path, user]] of pages.entries()) {
+      for (const [i, [name, path, user, after]] of pages.entries()) {
         const tag = `${name} @${w} ${theme}`;
         try {
           const token = user ? await tokenFor(user) : null;
@@ -693,7 +914,11 @@ async function signOut(page) {
           if (i > 0) await p.evaluate((t) => (t ? localStorage.setItem('vaultmind.token', t) : localStorage.removeItem('vaultmind.token')), token);
           await open(BASE + path);
           await p.waitForLoadState('networkidle');
-          await p.waitForTimeout(name === 'admin' ? 900 : 300);
+          await p.waitForTimeout(name.startsWith('admin') ? 900 : 300);
+          if (after) {
+            await after(p);
+            await p.waitForTimeout(350); // let the panel's entrance animation finish
+          }
           const r = await p.evaluate(() => {
             const vw = document.documentElement.clientWidth;
             const over = [];
@@ -743,6 +968,7 @@ async function signOut(page) {
   for (const [k, v] of axeFindings) ok(`a11y: ${k}`, false, `${v.impact}, ${v.n} nodes, e.g. ${v.sample}`);
   ok('a11y: axe WCAG 2 A/AA scan', axeFindings.size === 0, `${axeFindings.size} distinct issues`);
 
+  await new Promise((resolve) => setTimeout(resolve, 1200)); // let the last cancelled-request reports settle
   await browser.close();
 
   report();

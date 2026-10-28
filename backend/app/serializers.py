@@ -1,10 +1,17 @@
+from typing import TYPE_CHECKING
+
 from .models import AccessGrant, AccessRequest, AuditEvent, Document, Position, User
 from .policy import can_manage, can_view
-from .schemas import AccessInfo, AccessRequestOut, AuditOut, DocumentOut, GrantOut, UserOut
+from .schemas import AccessInfo, AccessRequestOut, AuditOut, DocumentOut, GrantOut, SourceRef, UserOut
+
+if TYPE_CHECKING:
+    from .services import Viewer
 
 
-def document_out(doc: Document, user: User, grants: set[int], pending: set[int] = frozenset()) -> DocumentOut:
-    decision = can_view(user, doc, grants)
+def document_out(doc: Document, viewer: "Viewer", pending: set[int] = frozenset()) -> DocumentOut:
+    user = viewer.user
+    decision = can_view(user, doc, viewer.grants, viewer.groups)
+    source = doc.source
     return DocumentOut(
         id=doc.id,
         title=doc.title,
@@ -18,6 +25,7 @@ def document_out(doc: Document, user: User, grants: set[int], pending: set[int] 
         min_position_label=Position(doc.min_position).label,
         discoverable=doc.discoverable,
         shared_with=sorted(s.team.name for s in doc.shares),
+        shared_with_groups=sorted(g.group.name for g in doc.group_shares),
         # Summary, tags and scanner flags are all derived from the content, so people who
         # can't open the document don't get them either.
         summary=doc.summary if decision.allowed else "",
@@ -26,11 +34,18 @@ def document_out(doc: Document, user: User, grants: set[int], pending: set[int] 
         uploaded_by=doc.uploader.full_name if doc.uploader else None,
         created_at=doc.created_at,
         updated_at=doc.updated_at,
+        version=doc.version or 1,
+        ai_enabled=doc.ai_enabled,
+        acl_mode=doc.acl_mode,
+        source=SourceRef(id=source.id, kind=source.kind, label=source.label, name=source.name) if source else None,
+        # Where the file lives is only shown to people who can open it.
+        source_path=doc.source_path if decision.allowed else "",
+        external_url=doc.external_url if decision.allowed else None,
         access=AccessInfo(
             allowed=decision.allowed,
             code=decision.code,
             reason=decision.reason,
-            can_manage=can_manage(user, doc, grants),
+            can_manage=can_manage(user, doc, viewer.grants, viewer.groups),
             request_pending=doc.id in pending,
         ),
     )

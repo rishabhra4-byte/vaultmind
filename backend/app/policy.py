@@ -11,7 +11,9 @@ The decision returns a reason code and a human explanation, which powers the
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from .models import Classification, Document, Position, User
+from .models import AclMode, Classification, Document, Position, SourceKind, User
+
+Ids = set[int] | frozenset[int]
 
 
 @dataclass(frozen=True)
@@ -29,7 +31,39 @@ def _label(position: int) -> str:
     return Position(position).label
 
 
-def can_view(user: User, doc: Document, granted_doc_ids: set[int] | frozenset[int] = frozenset()) -> Decision:
+def _source_label(doc: Document) -> str:
+    return SourceKind(doc.source.kind).label if doc.source is not None else "its source"
+
+
+def matches_principal(user: User, kind: str, value: str, group_ids: Ids) -> bool:
+    email = user.email.lower()
+    if kind == "company":
+        return True
+    if kind == "domain":
+        return email.endswith("@" + value.lower())
+    if kind == "user":
+        return email == value.lower()
+    if kind == "group":
+        return value.isdigit() and int(value) in group_ids
+    return False
+
+
+def _mirrored(user: User, doc: Document, group_ids: Ids) -> Decision:
+    """Files synced with their sharing: whoever the source shares them with, and nobody else."""
+    where = _source_label(doc)
+    for p in doc.principals:
+        if matches_principal(user, p.kind, p.value, group_ids):
+            how = {
+                "company": "everyone in the company",
+                "domain": f"everyone at {p.value}",
+                "user": "you",
+                "group": "a group you're in",
+            }[p.kind]
+            return Decision(True, "source", f"Shared with {how} in {where}.")
+    return Decision(False, "source", f"This file isn't shared with you in {where}. Ask its owner there for access.")
+
+
+def can_view(user: User, doc: Document, granted_doc_ids: Ids = frozenset(), group_ids: Ids = frozenset()) -> Decision:
     if not user.is_active:
         return Decision(False, "inactive", "Your account is deactivated.")
     if user.is_admin:
@@ -38,6 +72,8 @@ def can_view(user: User, doc: Document, granted_doc_ids: set[int] | frozenset[in
         return Decision(True, "uploader", "You uploaded this document.")
     if doc.id in granted_doc_ids:
         return Decision(True, "grant", "You have a temporary access grant for this document.")
+    if doc.acl_mode == AclMode.MIRROR:
+        return _mirrored(user, doc, group_ids)
 
     classification = Classification(doc.classification)
     if classification is Classification.RESTRICTED:
@@ -47,10 +83,12 @@ def can_view(user: User, doc: Document, granted_doc_ids: set[int] | frozenset[in
             "This document is restricted to named people. Request access from its owning team.",
         )
 
+    in_group = bool(doc.shared_group_ids & group_ids)
     in_scope = (
         classification is Classification.PUBLIC
         or user.team_id == doc.owner_team_id
         or user.team_id in doc.shared_team_ids
+        or in_group
         # Executives have company-wide visibility for anything that isn't restricted.
         or user.position >= Position.EXECUTIVE
     )
@@ -76,21 +114,35 @@ def can_view(user: User, doc: Document, granted_doc_ids: set[int] | frozenset[in
         return Decision(True, "team", f"Your team ({doc.owner_team.name}) owns this document.")
     if user.team_id in doc.shared_team_ids:
         return Decision(True, "shared", "This document is shared with your team.")
+    if in_group:
+        return Decision(True, "group", "This document is shared with a group you're in.")
     return Decision(True, "executive", "Executives can view all non-restricted documents.")
 
 
-def can_manage(user: User, doc: Document, granted_doc_ids: set[int] | frozenset[int] = frozenset()) -> bool:
-    """Edit metadata, change classification, share or delete."""
-    if user.is_admin or doc.uploaded_by == user.id:
+def can_manage(user: User, doc: Document, granted_doc_ids: Ids = frozenset(), group_ids: Ids = frozenset()) -> bool:
+    """Edit metadata, change classification, share, upload a new version or delete."""
+    if user.is_admin:
         return True
-    return user.team_id == doc.owner_team_id and user.position >= Position.MANAGER and bool(can_view(user, doc, granted_doc_ids))
+    if doc.source_id is not None:
+        return False  # synced files are changed in their source; only admins adjust them here
+    if doc.uploaded_by == user.id:
+        return True
+    return (
+        user.team_id == doc.owner_team_id
+        and user.position >= Position.MANAGER
+        and bool(can_view(user, doc, granted_doc_ids, group_ids))
+    )
 
 
 def can_approve(user: User, doc: Document, requester_id: int) -> bool:
     """Who may approve an access request for this document."""
     if user.id == requester_id or not user.is_active:
         return False
-    if user.is_admin or doc.uploaded_by == user.id:
+    if user.is_admin:
+        return True
+    if doc.acl_mode == AclMode.MIRROR:
+        return False  # access to mirrored files is granted in the source system
+    if doc.uploaded_by == user.id:
         return True
     needed = max(Position.MANAGER, doc.min_position)
     if doc.classification == Classification.RESTRICTED:
@@ -99,8 +151,11 @@ def can_approve(user: User, doc: Document, requester_id: int) -> bool:
 
 
 def is_discoverable_to(user: User, doc: Document) -> bool:
-    """May this user see that the document *exists* (title only), even if they can't open it?"""
-    return doc.discoverable and doc.classification != Classification.RESTRICTED
+    """May this user see that the document *exists* (title only), even if they can't open it?
+
+    Mirrored files never are: like in Drive or SharePoint, a file you aren't shared on is invisible.
+    """
+    return doc.discoverable and doc.classification != Classification.RESTRICTED and doc.acl_mode != AclMode.MIRROR
 
 
 def grant_is_active(expires_at: datetime | None, revoked: bool, now: datetime | None = None) -> bool:

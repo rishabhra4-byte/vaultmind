@@ -10,3 +10,5 @@ PyJWT==2.15.0
 anthropic==2.3.0
 pypdf==6.21.3
 alembic==1.16.5
+httpx==0.28.1
+cryptography==50.0.1

@@ -19,6 +19,8 @@ interface AppState {
   notify: (text: string, tone?: Toast["tone"]) => void;
   inboxCount: number;
   refreshInbox: () => void;
+  /** Reload teams and other metadata, e.g. after an admin adds a team. */
+  refreshMeta: () => void;
 }
 
 const Ctx = createContext<AppState | null>(null);
@@ -75,11 +77,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (user) refreshInbox();
   }, [user, refreshInbox]);
 
+  const refreshMeta = useCallback(() => {
+    api<Meta>("/api/meta")
+      .then(setMeta)
+      .catch(() => {});
+  }, []);
+
   // Teams are only included for signed-in people, so reload metadata when that changes.
   const userId = user?.id ?? null;
   useEffect(() => {
-    if (userId !== null) api<Meta>("/api/meta").then(setMeta).catch(() => {});
-  }, [userId]);
+    if (userId !== null) refreshMeta();
+  }, [userId, refreshMeta]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const res = await api<{ access_token: string; user: User }>("/api/auth/login", { method: "POST", json: { email, password } });
@@ -88,8 +96,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, meta, metaSettled, ready, signIn, signOut, notify, inboxCount, refreshInbox }),
-    [user, meta, metaSettled, ready, signIn, signOut, notify, inboxCount, refreshInbox],
+    () => ({ user, meta, metaSettled, ready, signIn, signOut, notify, inboxCount, refreshInbox, refreshMeta }),
+    [user, meta, metaSettled, ready, signIn, signOut, notify, inboxCount, refreshInbox, refreshMeta],
   );
 
   return (

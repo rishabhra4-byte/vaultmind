@@ -110,6 +110,34 @@ def scan(text: str) -> ScanResult:
     return result
 
 
+def floor_for_flags(flags: list[str]) -> Classification:
+    """The lowest classification a document with these scanner flags should have."""
+    levels = {d.flag: d.level for d in DETECTORS}
+    floor = Classification.PUBLIC
+    for flag in flags or []:
+        level = levels.get(flag)
+        if level is not None and rank(level) > rank(floor):
+            floor = level
+    if {"email", "phone"} <= set(flags or []) and rank(floor) < rank(Classification.CONFIDENTIAL):
+        floor = Classification.CONFIDENTIAL
+    return floor
+
+
+def redact_for_ai(text: str) -> str:
+    """Mask identity numbers, card numbers and secrets before text is sent to the AI service.
+
+    Names, emails and phone numbers stay: "who do I contact?" is one of the most common
+    questions, and the person asking can open the document anyway.
+    """
+    for det in DETECTORS:
+        if det.level != Classification.RESTRICTED:
+            continue
+        text = det.pattern.sub(
+            lambda m, d=det: f"[{d.label.lower()} removed]" if not d.validate or d.validate(m.group(0)) else m.group(0), text
+        )
+    return text
+
+
 def redact(text: str) -> str:
     """Mask identity numbers, secrets and contact details, e.g. in auto-generated summaries."""
     for det in DETECTORS:
