@@ -1,9 +1,11 @@
 import "@fontsource-variable/plus-jakarta-sans";
 import "@fontsource/source-serif-4/400.css";
 import "@fontsource/source-serif-4/600.css";
-import { lazy, StrictMode, Suspense } from "react";
+import { StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { lazyPage } from "./lazyPage";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
@@ -12,12 +14,12 @@ import { AppProvider, useApp } from "./state";
 import "./styles.css";
 
 // The signed-in app loads separately, so visitors to the public pages don't download it.
-const Shell = lazy(() => import("./components/Shell"));
-const Admin = lazy(() => import("./pages/Admin"));
-const Assistant = lazy(() => import("./pages/Assistant"));
-const DocumentPage = lazy(() => import("./pages/DocumentPage"));
-const Library = lazy(() => import("./pages/Library"));
-const Requests = lazy(() => import("./pages/Requests"));
+const Shell = lazyPage(() => import("./components/Shell"));
+const Admin = lazyPage(() => import("./pages/Admin"));
+const Assistant = lazyPage(() => import("./pages/Assistant"));
+const DocumentPage = lazyPage(() => import("./pages/DocumentPage"));
+const Library = lazyPage(() => import("./pages/Library"));
+const Requests = lazyPage(() => import("./pages/Requests"));
 
 /** Signed out on an app page: sign in, then come back here. */
 function SignInFirst() {
@@ -49,19 +51,21 @@ function App() {
     );
 
   return (
-    <Suspense fallback={<div className="boot" aria-busy="true" />}>
-      <Routes>
-        <Route path="/signin" element={<AfterSignIn />} />
-        <Route element={<Shell />}>
-          <Route index element={<Assistant />} />
-          <Route path="library" element={<Library />} />
-          <Route path="library/:id" element={<DocumentPage />} />
-          <Route path="requests" element={<Requests />} />
-          {user.is_admin && <Route path="admin/*" element={<Admin />} />}
-          <Route path="*" element={<NotFound />} />
-        </Route>
-      </Routes>
-    </Suspense>
+    <ErrorBoundary>
+      <Suspense fallback={<div className="boot" aria-busy="true" />}>
+        <Routes>
+          <Route path="/signin" element={<AfterSignIn />} />
+          <Route element={<Shell />}>
+            <Route index element={<Assistant />} />
+            <Route path="library" element={<Library />} />
+            <Route path="library/:id" element={<DocumentPage />} />
+            <Route path="requests" element={<Requests />} />
+            {user.is_admin && <Route path="admin/*" element={<Admin />} />}
+            <Route path="*" element={<NotFound />} />
+          </Route>
+        </Routes>
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 

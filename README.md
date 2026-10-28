@@ -123,7 +123,7 @@ Search follows the same rule. Content matching only ever runs over documents the
 
 **Backend:** Python 3.12, FastAPI, SQLAlchemy 2, Alembic, PostgreSQL (SQLite for local runs), JWT auth with bcrypt, Anthropic API, pypdf
 **Frontend:** React 18, TypeScript, Vite, React Router, with no UI framework, self-hosted fonts
-**Quality:** pytest (167 tests, on SQLite and PostgreSQL, plus 4 opt-in live Claude checks; Google, Microsoft, Slack, SMTP and sign-in are tested against local fakes of their APIs), a 434-check browser audit run in Chromium, Firefox and WebKit (Playwright + axe), an accessibility review, performance checks, Ruff, pip-audit and npm audit, and a CI job that tests the Docker image itself
+**Quality:** pytest (167 tests, on SQLite and PostgreSQL, plus 4 opt-in live Claude checks; Google, Microsoft, Slack, SMTP and sign-in are tested against local fakes of their APIs), a 435-check browser audit run in Chromium, Firefox and WebKit (Playwright + axe), an accessibility review, performance checks, Ruff, pip-audit and npm audit, and a CI job that tests the Docker image itself
 
 ## Run it
 
@@ -191,13 +191,13 @@ VAULTMIND_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/vaultmind_t
 
 ### Browser audit
 
-[`e2e/audit.js`](e2e/audit.js) drives the real app and checks **434 things**. CI runs it in Chromium, Firefox and WebKit, and again against the production Docker container:
+[`e2e/audit.js`](e2e/audit.js) drives the real app and checks **435 things**. CI runs it in Chromium, Firefox and WebKit, and again against the production Docker container:
 
 - Every flow as six different people: sign-in (including wrong passwords, a corrupted session, and coming back to the page that was asked for), the assistant, paragraph citations, copy, Stop, conversations, confirming an access request from an answer, asking about one document, versions and what changed, the AI switch, notifications, the first-week checklist, the command palette, library search and filters, upload (drag-and-drop, unsupported and empty files, duplicates, the sensitivity override), downloads, access settings, delete with confirmation, approving, denying, cancelling and revoking requests, and the admin pages (people and import, teams, groups, sources, glossary, insights).
-- Failure handling: the API going offline, a failed chat message (the draft is kept), and rate limiting.
+- Failure handling: the API going offline, a page whose code can't be downloaded (a reload is offered and the rest of the app keeps working), a failed chat message (the draft is kept), and rate limiting.
 - Security and polish: the content security policy, self-hosted fonts, no team list for signed-out visitors, a 404 page, and a title for every page.
 - Every page at 320, 360, 390, 768, 1024, 1280, 1440 and 1920 px, in light and dark: no horizontal overflow, readable headings, and touch targets of at least 24 px.
-- An [axe](https://github.com/dequelabs/axe-core) WCAG 2 A/AA scan of every page, plus a check for any console error or failed request.
+- An [axe](https://github.com/dequelabs/axe-core) WCAG 2 A/AA scan of every page, plus a check for any console error or failed request (requests the browser cancels because the audit moved on to the next page don't count).
 
 [`e2e/a11y-review.js`](e2e/a11y-review.js) covers what axe can't: keyboard-only use with a visible focus ring, focus trapping and return in dialogs, focus never hidden behind sticky parts, reduced motion, and text spacing, and saves accessibility-tree snapshots to read. [`e2e/perf.js`](e2e/perf.js) measures loading on a slow 3G connection and checks for memory leaks over 45 rounds of use.
 

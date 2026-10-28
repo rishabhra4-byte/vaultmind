@@ -29,19 +29,42 @@ async function check(name, fn) {
   }
 }
 
+// How each engine reports a request the browser itself cancelled (Chromium, Firefox, WebKit).
+const CANCELLED = /^(net::ERR_ABORTED|NS_BINDING_ABORTED|Load request cancelled|cancelled)$/;
+
 function watch(page, tag) {
+  // The audit moves on as soon as a check passes, so it often loads the next page while the
+  // last one is still fetching. The browser cancels those requests; that's not a problem in
+  // the app. A cancelled request counts only if the page didn't navigate after it started.
+  let navigations = 0;
+  const startedAfter = new WeakMap();
+  page.on('request', (r) => {
+    let leavesPage = false;
+    try {
+      leavesPage = r.isNavigationRequest() && r.frame() === page.mainFrame();
+    } catch {} // requests without a frame (service workers) can't navigate the page
+    if (leavesPage) navigations++;
+    startedAfter.set(r, navigations);
+  });
   page.on('pageerror', (e) => problems.push(`[${tag}] page error: ${e.message}`));
   page.on('console', (m) => {
+    if (page.__expectFailures) return; // a check that breaks things on purpose
     if (m.type() === 'error' && !/fonts\.g|ERR_TUNNEL|net::ERR_FAILED|Failed to load resource: the server responded with a status of (401|403|404|409|422|429)/.test(m.text()))
       problems.push(`[${tag}] console: ${m.text().slice(0, 200)}`);
   });
   page.on('requestfailed', async (r) => {
     if (/fonts\.g/.test(r.url()) || page.__expectFailures) return;
+    const error = r.failure()?.errorText ?? '';
+    if (CANCELLED.test(error)) {
+      // Engines report the cancellations and the navigation that caused them in either order.
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (navigations > (startedAfter.get(r) ?? navigations)) return;
+    }
     // Chromium reports bodiless 204 responses as "aborted"; only count real failures.
     const resp = await r.response().catch(() => null);
     if (resp && resp.status() === 204) return;
-    if (r.failure()?.errorText === 'net::ERR_ABORTED' && r.method() === 'DELETE') return;
-    problems.push(`[${tag}] request failed: ${r.method()} ${r.url()} ${r.failure()?.errorText}`);
+    if (error === 'net::ERR_ABORTED' && r.method() === 'DELETE') return;
+    problems.push(`[${tag}] request failed: ${r.method()} ${r.url()} ${error}`);
   });
   page.on('response', (r) => {
     if (r.status() >= 500) problems.push(`[${tag}] HTTP ${r.status()} ${r.url()}`);
@@ -765,6 +788,19 @@ async function signOut(page) {
     const p = await newPage(browser, 'failures');
     await signIn(p, 'Neha Kapoor');
     p.__expectFailures = true;
+    await check('offline: a page whose code fails to download offers a reload; the rest of the app still works', async () => {
+      await p.route('**/assets/Requests-*.js', (r) => r.abort());
+      await p.click('nav >> text=Access requests');
+      await p.waitForSelector('.not-found[role=alert]:has-text("This page didn\'t load")', { timeout: 10000 });
+      const sidebar = await p.isVisible('.sidebar nav');
+      await p.click('nav >> text=Assistant');
+      await p.waitForSelector('.composer textarea');
+      await p.unroute('**/assets/Requests-*.js');
+      await p.click('nav >> text=Access requests');
+      await p.click('.not-found[role=alert] button:has-text("Reload")'); // the failed download is remembered until a reload
+      await p.waitForSelector('h1:has-text("Access requests")');
+      return sidebar || 'the sidebar disappeared with the page';
+    });
     await check('offline: library shows a retry state when the API is unreachable', async () => {
       await p.route('**/api/documents?*', (r) => r.abort());
       await p.click('nav >> text=Library');
@@ -932,6 +968,7 @@ async function signOut(page) {
   for (const [k, v] of axeFindings) ok(`a11y: ${k}`, false, `${v.impact}, ${v.n} nodes, e.g. ${v.sample}`);
   ok('a11y: axe WCAG 2 A/AA scan', axeFindings.size === 0, `${axeFindings.size} distinct issues`);
 
+  await new Promise((resolve) => setTimeout(resolve, 1200)); // let the last cancelled-request reports settle
   await browser.close();
 
   report();
