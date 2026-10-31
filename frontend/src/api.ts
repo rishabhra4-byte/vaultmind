@@ -27,8 +27,9 @@ export class ApiError extends Error {
   }
 }
 
-let onUnauthorized: () => void = () => {};
-export function setUnauthorizedHandler(fn: () => void) {
+/** Called when the server refuses this browser's session, with its reason ("You were signed out (password changed)."). */
+let onUnauthorized: (reason: string) => void = () => {};
+export function setUnauthorizedHandler(fn: (reason: string) => void) {
   onUnauthorized = fn;
 }
 
@@ -49,7 +50,6 @@ export async function api<T>(path: string, options: RequestInit & { json?: unkno
     body = JSON.stringify(options.json);
   }
   const res = await fetch(path, { ...options, headers, body });
-  if (res.status === 401 && token) onUnauthorized();
   if (!res.ok) {
     let detail: unknown = null;
     try {
@@ -57,7 +57,9 @@ export async function api<T>(path: string, options: RequestInit & { json?: unkno
     } catch {
       /* non-JSON error */
     }
-    throw new ApiError(res.status, messageFrom(detail, `Request failed (${res.status})`), detail);
+    const message = messageFrom(detail, `Request failed (${res.status})`);
+    if (res.status === 401 && token) onUnauthorized(message);
+    throw new ApiError(res.status, message, detail);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;

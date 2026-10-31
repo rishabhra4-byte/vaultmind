@@ -10,7 +10,7 @@ import { ThemeToggle } from "../theme";
 const POSITIONS = ["Intern", "Associate", "Senior", "Manager", "Director", "Executive"];
 
 export default function Login() {
-  const { signIn, meta, metaSettled } = useApp();
+  const { signIn, meta, metaSettled, endedReason } = useApp();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -144,6 +144,11 @@ export default function Login() {
       <section className="login-panel">
         <div className="card stack">
           <h2>Sign in</h2>
+          {endedReason && !ssoError && (
+            <p className="fallback-note" role="status">
+              {endedReason}
+            </p>
+          )}
           {ssoError && (
             <p className="error" role="alert">
               {ssoError}

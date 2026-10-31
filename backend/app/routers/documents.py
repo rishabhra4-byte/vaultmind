@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import audit, retrieval, storage
+from .. import audit, malware, retrieval, storage
 from ..config import get_settings
 from ..database import get_db
 from ..deps import current_user
@@ -27,6 +28,7 @@ from ..models import (
     User,
     utcnow,
 )
+from ..notify import notify_admins
 from ..policy import can_manage, can_view, grant_is_active, is_discoverable_to
 from ..recommend import recommend
 from ..schemas import (
@@ -258,9 +260,9 @@ def changes(
 
 
 @router.post("/documents/scan", response_model=ScanOut)
-async def scan_upload(file: UploadFile = File(...), user: User = Depends(current_user)):
+async def scan_upload(file: UploadFile = File(...), user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Preview the sensitivity scan before uploading, so the form can suggest a classification."""
-    data = await _read_upload(file)
+    data = await _read_upload(file, user, db)
     try:
         text = extract_text(safe_filename(file.filename), data)
     except UnsupportedFile as exc:
@@ -274,13 +276,35 @@ async def scan_upload(file: UploadFile = File(...), user: User = Depends(current
     )
 
 
-async def _read_upload(file: UploadFile) -> bytes:
+async def _read_upload(file: UploadFile, user: User, db: Session) -> bytes:
     limit = get_settings().max_upload_mb * 1024 * 1024
     data = await file.read(limit + 1)
     if len(data) > limit:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"Files are limited to {get_settings().max_upload_mb} MB")
     if not data:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The file is empty")
+    # Scanned before anything reads the file (text extraction parses PDFs and Word files).
+    try:
+        verdict = await run_in_threadpool(malware.scan, data)
+    except malware.ScanUnavailable:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Uploads are paused because the virus scanner can't be reached. Try again in a few minutes, or tell IT.",
+        ) from None
+    if verdict.infected:
+        name = safe_filename(file.filename)
+        audit.record(db, user, "document.upload_blocked", "document", None, filename=name, signature=verdict.signature)
+        notify_admins(
+            db,
+            f"Malware blocked: {name}",
+            f"{user.full_name} tried to upload {name}. ClamAV found {verdict.signature}; the file wasn't stored.",
+            "/admin/activity",
+        )
+        db.commit()
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"This file contains malware ({verdict.signature}), so it wasn't uploaded. Your administrators have been told.",
+        )
     return data
 
 
@@ -307,7 +331,7 @@ async def upload(
     if min_position is not None and not Position.INTERN <= min_position <= Position.EXECUTIVE:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "min_position must be between 1 and 6")
 
-    data = await _read_upload(file)
+    data = await _read_upload(file, user, db)
     filename = safe_filename(file.filename)
 
     try:
@@ -465,7 +489,7 @@ async def upload_new_version(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can't change this document")
     if doc.source_id is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Synced files get new versions in their source")
-    data = await _read_upload(file)
+    data = await _read_upload(file, user, db)
     filename = safe_filename(file.filename)
     try:
         text = extract_text(filename, data)

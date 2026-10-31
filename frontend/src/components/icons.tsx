@@ -277,3 +277,10 @@ export const IconFilter = (p: P) => (
     <path d="M3 5h18M6.5 12h11M10 19h4" />
   </Svg>
 );
+
+export const IconKey = (p: P) => (
+  <Svg {...p}>
+    <circle cx="7.5" cy="15.5" r="4.5" />
+    <path d="m10.7 12.3 9.3-9.3M16 7l3 3M14 9l2 2" />
+  </Svg>
+);

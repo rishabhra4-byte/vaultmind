@@ -4261,3 +4261,49 @@ button.dropzone {
     display: none;
   }
 }
+
+/* ---------- your account: sessions and password ---------- */
+
+.account h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.session-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.session-row .pill {
+  margin-left: 4px;
+}
+.session-admin {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 0.86rem;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+@media (max-width: 560px) {
+  .session-row,
+  .session-admin {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

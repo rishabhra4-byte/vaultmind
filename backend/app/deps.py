@@ -8,22 +8,26 @@ from sqlalchemy.orm import Session
 
 from .database import get_db
 from .models import User
-from .security import decode_access_token
+from .sessions import Auth, SessionInvalid, authenticate
 
 bearer = HTTPBearer(auto_error=False)
 
 
-def current_user(
+def current_auth(
     creds: HTTPAuthorizationCredentials | None = Depends(bearer),
     db: Session = Depends(get_db),
-) -> User:
+) -> Auth:
+    """The signed-in person and their session. Every request checks the session is still open."""
     if creds is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not signed in", headers={"WWW-Authenticate": "Bearer"})
-    user_id = decode_access_token(creds.credentials)
-    user = db.get(User, user_id) if user_id else None
-    if user is None or not user.is_active:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expired or account disabled")
-    return user
+    try:
+        return authenticate(db, creds.credentials)
+    except SessionInvalid as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc), headers={"WWW-Authenticate": "Bearer"}) from None
+
+
+def current_user(auth: Auth = Depends(current_auth)) -> User:
+    return auth.user
 
 
 def optional_user(
@@ -31,9 +35,12 @@ def optional_user(
     db: Session = Depends(get_db),
 ) -> User | None:
     """The signed-in user if the request carries a valid token, otherwise None (never raises)."""
-    user_id = decode_access_token(creds.credentials) if creds else None
-    user = db.get(User, user_id) if user_id else None
-    return user if user is not None and user.is_active else None
+    if creds is None:
+        return None
+    try:
+        return authenticate(db, creds.credentials, touch=False).user
+    except SessionInvalid:
+        return None
 
 
 def admin_user(user: User = Depends(current_user)) -> User:

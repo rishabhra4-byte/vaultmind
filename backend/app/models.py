@@ -14,6 +14,7 @@ User ──< Conversation ──< Message   assistant chat history
 User ──< AssistantAction            things the assistant offered to do, done only once confirmed
 User ──< Notification               in-app notices, also sent by email or Slack when set up
 User ──< UserIdentity               the person's id at Google, Microsoft or Slack
+User ──< UserSession                signed-in browsers, which can be ended
 GlossaryTerm                        company vocabulary used to widen searches
 AuditEvent                          append-only activity log
 """
@@ -116,6 +117,25 @@ class User(Base):
 
     team: Mapped[Team] = relationship(back_populates="members")
     memberships: Mapped[list["GroupMember"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+
+class UserSession(Base):
+    """One signed-in browser. The token carries a random session id; only its SHA-256 is stored
+    here, so a copy of the database can't be used to sign in as anyone."""
+
+    __tablename__ = "user_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # sha256 of the token's session id
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    method: Mapped[str] = mapped_column(String(20), default="password")  # password | google | microsoft
+    ip: Mapped[str] = mapped_column(String(64), default="")
+    user_agent: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    # signed_out | password_changed | deactivated | role_changed | ended_by_admin | ended_by_user | idle
+    end_reason: Mapped[str] = mapped_column(String(40), default="")
 
 
 class UserIdentity(Base):

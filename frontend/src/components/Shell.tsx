@@ -2,11 +2,12 @@ import { Suspense, useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useApp } from "../state";
 import { ThemeToggle } from "../theme";
+import { AccountDialog } from "./AccountDialog";
 import { Avatar, Ladder } from "./bits";
 import CommandPalette from "./CommandPalette";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { NotificationBell } from "./NotificationBell";
-import { IconChat, IconInbox, IconLibrary, IconLogout, IconSearch, IconShield, IconSparkle } from "./icons";
+import { IconChat, IconInbox, IconKey, IconLibrary, IconLogout, IconSearch, IconShield, IconSparkle } from "./icons";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -14,6 +15,7 @@ export default function Shell() {
   const { user, signOut, inboxCount, meta } = useApp();
   const { pathname } = useLocation();
   const [palette, setPalette] = useState(false);
+  const [account, setAccount] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -87,6 +89,9 @@ export default function Shell() {
             </span>
             <span className="row">
               <ThemeToggle />
+              <button className="link-btn" onClick={() => setAccount(true)} aria-label="Your account and sessions" title="Your account and sessions">
+                <IconKey />
+              </button>
               <button className="link-btn" onClick={signOut} aria-label="Sign out" title="Sign out">
                 <IconLogout />
               </button>
@@ -104,6 +109,7 @@ export default function Shell() {
         </ErrorBoundary>
       </main>
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
+      {account && <AccountDialog onClose={() => setAccount(false)} />}
     </div>
   );
 }

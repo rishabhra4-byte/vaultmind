@@ -49,12 +49,48 @@ function Figure({ icon, label, children }: { icon: ReactNode; label: string; chi
 
 const STATUS: Record<string, string> = { ok: "Synced", error: "Failing", syncing: "Syncing", idle: "Not synced yet" };
 
+interface Operations {
+  backups: {
+    enabled: boolean;
+    interval_hours: number;
+    keep: number;
+    recent: { name: string; created_at: string; size: number; verified: boolean | null; checks: { name: string; ok: boolean; detail: string }[] }[];
+  };
+}
+
+/** Whether backups run, and whether the newest one passed its restore check. */
+function BackupStatus({ ops }: { ops: Operations | null }) {
+  if (!ops) return <p className="muted small">Checking…</p>;
+  const { backups } = ops;
+  if (!backups.enabled)
+    return (
+      <p className="muted small">
+        <span className="status status-error">Off</span> Scheduled backups aren't set up. Set <code>VAULTMIND_BACKUP_DIR</code> (see the
+        operations guide), or run <code>python -m app.cli backup</code>.
+      </p>
+    );
+  const latest = backups.recent[0];
+  if (!latest) return <p className="muted small">The first backup runs within the hour.</p>;
+  const failed = latest.checks.filter((c) => !c.ok);
+  return (
+    <p className="muted small">
+      <span className={`status status-${latest.verified ? "ok" : latest.verified === null ? "idle" : "error"}`}>
+        {latest.verified ? "Restore check passed" : latest.verified === null ? "Not checked yet" : "Restore check failed"}
+      </span>{" "}
+      Last backup {timeAgo(latest.created_at)}, {(latest.size / 1024 / 1024).toFixed(1)} MB. Every {backups.interval_hours} h, newest{" "}
+      {backups.keep} kept.
+      {failed.length > 0 && ` Failed: ${failed.map((c) => c.name.toLowerCase()).join("; ")}.`}
+    </p>
+  );
+}
+
 export default function Overview() {
   const { notify } = useApp();
   const [stats, setStats] = useState<Stats | null>(null);
   const [insights, setInsights] = useState<Insights | null>(null);
   const [days, setDays] = useState(30);
   const [barsReady, setBarsReady] = useState(false);
+  const [ops, setOps] = useState<Operations | null>(null);
 
   useEffect(() => {
     api<Stats>("/api/admin/stats")
@@ -64,6 +100,12 @@ export default function Overview() {
       })
       .catch(() => notify("Couldn't load the dashboard", "error"));
   }, [notify]);
+
+  useEffect(() => {
+    api<Operations>("/api/admin/operations")
+      .then(setOps)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     setInsights(null);
@@ -250,6 +292,8 @@ export default function Overview() {
                 {insights.ai.documents_ai_off} document{insights.ai.documents_ai_off === 1 ? "" : "s"} and{" "}
                 {insights.ai.sources_ai_off} source{insights.ai.sources_ai_off === 1 ? "" : "s"} are kept away from the AI.
               </p>
+              <h3>Backups</h3>
+              <BackupStatus ops={ops} />
             </section>
           </div>
         )}

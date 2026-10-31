@@ -11,6 +11,21 @@ export interface User {
   position_label: string;
   is_admin: boolean;
   is_active: boolean;
+  /** False for people who only sign in with Google or Microsoft. */
+  has_password: boolean;
+}
+
+/** A signed-in browser. */
+export interface SignedInSession {
+  id: string;
+  method: string;
+  /** "Chrome on Windows" */
+  device: string;
+  ip: string;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  current: boolean;
 }
 
 export interface Team {
@@ -340,8 +355,9 @@ export interface ScanFinding {
 export interface AdminUser extends User {
   auth_provider: string;
   directory_managed: boolean;
-  has_password: boolean;
   onboarding: boolean;
+  /** Browsers signed in right now. */
+  open_sessions: number;
   notify_email: boolean;
   groups: string[];
   created_at: string;

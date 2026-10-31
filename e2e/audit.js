@@ -768,8 +768,13 @@ async function signOut(page) {
     });
     await check('admin: activity filter shows only refused opens', async () => {
       await p.click('.admin-tabs >> text=Activity');
-      await p.selectOption('select[aria-label="Filter activity"]', 'document.view_denied');
+      // Wait for the filtered list itself: the unfiltered one can also start with a refusal.
+      await Promise.all([
+        p.waitForResponse((r) => r.url().includes('/api/admin/audit') && r.url().includes('action=document.view_denied')),
+        p.selectOption('select[aria-label="Filter activity"]', 'document.view_denied'),
+      ]);
       await p.waitForSelector('.audit li.denied');
+      await p.waitForTimeout(100);
       const all = await p.$$eval('.audit li', (els) => els.every((e) => e.classList.contains('denied')));
       return all;
     });
@@ -865,6 +870,61 @@ async function signOut(page) {
       await p.waitForSelector('.list-card:has-text("Spend policy")');
     });
     await p.context().close();
+  });
+
+  // ---------------------------------------------------------------- sessions
+  await block('sessions', async () => {
+    const laptop = await newPage(browser, 'sessions-laptop');
+    const phone = await newPage(browser, 'sessions-phone', { viewport: { width: 390, height: 844 } });
+    await signIn(laptop, 'Karan Singh');
+    await signIn(phone, 'Karan Singh');
+    await check('account: lists where you are signed in, with this browser marked', async () => {
+      await laptop.click('button[aria-label="Your account and sessions"]');
+      await laptop.waitForSelector('dialog[open] .session-row');
+      const rows = await laptop.$$eval('dialog[open] .session-row', (els) => els.map((e) => e.textContent));
+      return (rows.length >= 2 && rows.filter((r) => r.includes('This browser')).length === 1) || rows.join(' | ');
+    });
+    await check('account: a wrong current password or mismatched new ones are refused', async () => {
+      await laptop.fill('dialog[open] label:has-text("Current password") input', 'not-my-password');
+      await laptop.fill('dialog[open] label:has-text("New password") >> nth=0 >> input', 'a-long-enough-new-pass');
+      await laptop.fill('dialog[open] label:has-text("New password again") input', 'something-else-entirely');
+      await laptop.click('dialog[open] button:has-text("Change password")');
+      await laptop.waitForSelector('dialog[open] .error:has-text("don\'t match")');
+      await laptop.fill('dialog[open] label:has-text("New password again") input', 'a-long-enough-new-pass');
+      await laptop.click('dialog[open] button:has-text("Change password")');
+      await laptop.waitForSelector('dialog[open] .error:has-text("current password")');
+    });
+    await check('account: signing out other sessions ends them there, and says why at sign-in', async () => {
+      await laptop.click('dialog[open] button:has-text("Sign out of all other sessions")');
+      await toast(laptop, 'other session');
+      await laptop.keyboard.press('Escape');
+      await phone.reload();
+      await phone.waitForSelector('.fallback-note[role=status]:has-text("signed out from another browser")');
+      return (await laptop.isVisible('.sidebar')) || 'this browser was signed out too';
+    });
+    await check('admin: "Sign out everywhere" ends someone\'s sessions', async () => {
+      const admin = await newPage(browser, 'sessions-admin');
+      await signIn(admin, 'Dev Patel');
+      await admin.goto(BASE + '/admin/people');
+      await admin.click('button[aria-label="Edit Karan Singh"]');
+      const before = await admin.textContent('dialog[open] .session-admin');
+      await admin.click('dialog[open] button:has-text("Sign out everywhere")');
+      await toast(admin, 'Signed Karan Singh out');
+      await admin.context().close();
+      await laptop.reload();
+      await laptop.waitForSelector('.fallback-note[role=status]:has-text("An administrator signed you out")');
+      return before.includes('Signed in on 1 browser') || before;
+    });
+    await check('sign-out ends the session on the server, not just in this browser', async () => {
+      await signIn(phone, 'Karan Singh');
+      const token = await phone.evaluate(() => localStorage.getItem('vaultmind.token'));
+      await phone.click('button[aria-label="Sign out"]');
+      await phone.waitForSelector('.sidebar', { state: 'detached' });
+      const status = await phone.evaluate(async (t) => (await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${t}` } })).status, token);
+      return status === 401 || `the old token still works (${status})`;
+    });
+    await laptop.context().close();
+    await phone.context().close();
   });
 
   // ---------------------------------------------------------------- failure handling

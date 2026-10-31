@@ -34,13 +34,14 @@ function AfterSignIn() {
 }
 
 function App() {
-  const { user, ready } = useApp();
+  const { user, ready, endedReason } = useApp();
   if (!ready) return <div className="boot" aria-busy="true" />;
 
   if (!user)
     return (
       <Routes>
-        <Route path="/" element={<Landing />} />
+        {/* Signed out by the server (another browser, a password change): say why, at sign-in. */}
+        <Route path="/" element={endedReason ? <SignInFirst /> : <Landing />} />
         <Route path="/signin" element={<Login />} />
         {/* App pages need an account; anything else is a genuine 404. */}
         {["/library/*", "/requests", "/admin/*"].map((p) => (

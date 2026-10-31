@@ -15,7 +15,10 @@ interface AppState {
   metaSettled: boolean;
   ready: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signOut: () => void;
+  /** Ends this session on the server too, so the token stops working even if it was copied. */
+  signOut: () => Promise<void>;
+  /** Why the server ended the last session, for the sign-in page ("You were signed out (password changed)."). */
+  endedReason: string | null;
   notify: (text: string, tone?: Toast["tone"]) => void;
   inboxCount: number;
   refreshInbox: () => void;
@@ -40,9 +43,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [inboxCount, setInboxCount] = useState(0);
   const nextId = useRef(1);
 
-  const signOut = useCallback(() => {
+  const [endedReason, setEndedReason] = useState<string | null>(null);
+
+  // The server refused the session (signed out elsewhere, password changed, idle too long).
+  const expire = useCallback((reason: string) => {
     setToken(null);
     setUser(null);
+    setEndedReason(reason);
+  }, []);
+
+  const signOut = useCallback(async () => {
+    const token = getToken();
+    if (token) {
+      // End the session on the server first, so the token stops working even if it was copied.
+      // Offline or slow: give up after a few seconds; this browser forgets the session regardless.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3000);
+      try {
+        const res = await fetch("/api/auth/logout", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        await res.text();
+      } catch {
+        /* it ends on the server when it expires */
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    setToken(null);
+    setUser(null);
+    setEndedReason(null);
   }, []);
 
   const notify = useCallback((text: string, tone: Toast["tone"] = "ok") => {
@@ -58,7 +90,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    setUnauthorizedHandler(signOut);
+    setUnauthorizedHandler(expire);
     api<Meta>("/api/meta")
       .then(setMeta)
       .catch(() => setMeta(null))
@@ -71,7 +103,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .then(setUser)
       .catch(() => setToken(null))
       .finally(() => setReady(true));
-  }, [signOut]);
+  }, [expire]);
 
   useEffect(() => {
     if (user) refreshInbox();
@@ -92,12 +124,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (email: string, password: string) => {
     const res = await api<{ access_token: string; user: User }>("/api/auth/login", { method: "POST", json: { email, password } });
     setToken(res.access_token);
+    setEndedReason(null);
     setUser(res.user);
   }, []);
 
   const value = useMemo(
-    () => ({ user, meta, metaSettled, ready, signIn, signOut, notify, inboxCount, refreshInbox, refreshMeta }),
-    [user, meta, metaSettled, ready, signIn, signOut, notify, inboxCount, refreshInbox, refreshMeta],
+    () => ({ user, meta, metaSettled, ready, signIn, signOut, endedReason, notify, inboxCount, refreshInbox, refreshMeta }),
+    [user, meta, metaSettled, ready, signIn, signOut, endedReason, notify, inboxCount, refreshInbox, refreshMeta],
   );
 
   return (

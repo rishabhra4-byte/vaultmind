@@ -187,6 +187,10 @@ export default function People() {
           onSave={async (change) => {
             if (await update(editing, change)) setEditing(null);
           }}
+          onSignedOut={() => {
+            setEditing({ ...editing, open_sessions: 0 });
+            load();
+          }}
         />
       )}
       {importing && (
@@ -333,12 +337,30 @@ function EditPerson({
   isMe,
   onClose,
   onSave,
+  onSignedOut,
 }: {
   person: AdminUser;
   isMe: boolean;
   onClose: () => void;
   onSave: (change: Record<string, unknown>) => void;
+  onSignedOut: () => void;
 }) {
+  const { notify } = useApp();
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function signOutEverywhere() {
+    setSigningOut(true);
+    try {
+      const r = await api<{ ended: number }>(`/api/admin/users/${person.id}/sessions/end`, { method: "POST" });
+      notify(`Signed ${person.full_name} out of ${r.ended} session${r.ended === 1 ? "" : "s"}`);
+      onSignedOut();
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : "Couldn't sign them out", "error");
+    } finally {
+      setSigningOut(false);
+    }
+  }
+
   const [name, setName] = useState(person.full_name);
   const [title, setTitle] = useState(person.title);
   const [admin, setAdmin] = useState(person.is_admin);
@@ -386,6 +408,21 @@ function EditPerson({
           <input type="checkbox" checked={onboarding} onChange={(e) => setOnboarding(e.target.checked)} />
           Show the first-week checklist
         </label>
+        {!isMe && (
+          <div className="session-admin">
+            <span>
+              {person.open_sessions === 0
+                ? "Not signed in anywhere right now."
+                : `Signed in on ${person.open_sessions} browser${person.open_sessions === 1 ? "" : "s"} right now.`}{" "}
+              Resetting the password or deactivating them also signs them out.
+            </span>
+            {person.open_sessions > 0 && (
+              <button type="button" className="btn small" onClick={signOutEverywhere} disabled={signingOut}>
+                Sign out everywhere
+              </button>
+            )}
+          </div>
+        )}
         <label className="check" title={isMe ? "You can't remove your own admin access" : undefined}>
           <input type="checkbox" checked={admin} disabled={isMe} onChange={(e) => setAdmin(e.target.checked)} />
           Administrator
