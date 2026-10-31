@@ -230,7 +230,9 @@ The slowest 5% of assistant answers take over 10 seconds.
 Answers keep falling back to offline mode because the AI service fails.
 
 1. `vaultmind_ai_fallbacks_total` by `reason`: `auth` (the key was revoked or is wrong), `quota`
-   (the account's usage limit), `rate_limited`, `timeout`, `network`, `unavailable`, `bad_response`, `error`.
+   (the account's usage limit), `rate_limited`, `timeout`, `network`, `unavailable`, `bad_response`, `error`,
+   and `budget` or `person_budget` when VaultMind's own daily limits (`VAULTMIND_AI_DAILY_LIMIT`,
+   `VAULTMIND_AI_DAILY_LIMIT_PER_PERSON`) were reached; **Admin → Overview → AI** shows today's use.
 2. The status page of your AI provider, and the key in `.env`.
 3. Nothing is lost meanwhile: offline answers use the same permission checks and say how they were made.
 

@@ -157,6 +157,8 @@ Open http://localhost:8000, click **Try the demo**, and pick a person to sign in
 
 Click the button, sign in to Render (a GitHub account works), and approve the one service it shows. Render builds the Docker image from [`render.yaml`](render.yaml) and gives the demo an address like `https://vaultmind-demo.onrender.com` (with a few random characters added if that name is taken). The first build takes several minutes.
 
+**AI answers on the demo.** Create an API key at [platform.claude.com](https://platform.claude.com/settings/keys) (add a small prepaid credit with auto-reload off, so that's the most it can cost), then in Render open the service → **Environment** and set `VAULTMIND_ANTHROPIC_API_KEY`. The demo uses Claude Haiku 5.5 and allows 300 AI calls a day in total and 30 AI answers per demo person; after that, answers are built offline and say so.
+
 It's a demo only. On the free plan it sleeps after 15 minutes without visitors (the next visit wakes it in about a minute), and it starts over with the demo company each time, so anything visitors upload disappears. Anyone with the link can sign in as any demo person, including the administrator, so never put real documents on it. Sign-in takes a couple of seconds on the free plan's small share of a CPU.
 
 ### Local development
