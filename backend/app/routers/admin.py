@@ -125,6 +125,19 @@ def stats(_: User = Depends(admin_user), db: Session = Depends(get_db)):
     }
 
 
+@router.get("/admin/feedback")
+def answer_feedback(
+    rating: str | None = Query("down", pattern="^(up|down)$"),
+    days: int = Query(30, ge=1, le=365),
+    _: User = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
+    """Answers people marked helpful or not, without who marked them."""
+    from .. import feedback
+
+    return feedback.review(db, rating=rating, days=days)
+
+
 @router.get("/admin/operations")
 def operations(_: User = Depends(admin_user)):
     """Backups and other operational checks, for the admin overview."""

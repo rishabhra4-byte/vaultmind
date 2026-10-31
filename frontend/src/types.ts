@@ -160,6 +160,14 @@ export interface ConflictSide {
   updated_at: string;
 }
 
+export type FeedbackReason = "" | "wrong" | "missing" | "source" | "should_abstain" | "other";
+
+export interface AnswerFeedback {
+  rating: "up" | "down";
+  reason: FeedbackReason;
+  note: string;
+}
+
 /** Narrow which documents the assistant answers from (never widens access). */
 export interface AnswerFilters {
   team_id?: number;
@@ -224,6 +232,8 @@ export interface Message {
     };
     evidence?: Evidence;
     conflicts?: Conflict[];
+    /** This person's own feedback on the answer. */
+    feedback?: AnswerFeedback;
     actions?: AssistantAction[];
     changes?: { id: number; title: string; version: number; from_version: number }[];
   };

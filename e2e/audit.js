@@ -366,6 +366,24 @@ async function signOut(page) {
       const labels = await reply.locator('.sources-label').allTextContents();
       return (t.includes('“dental”') && labels.every((l) => l.startsWith('Closest matches'))) || t.slice(0, 240);
     });
+    await check('assistant: "Not helpful" asks what was wrong, and the choice is kept', async () => {
+      const reply = p.locator('.msg-assistant:has-text("enough evidence")');
+      await reply.locator('button[aria-label="Not helpful"]').click();
+      await reply.locator('.feedback-form label:has-text("should have said")').click();
+      await reply.locator('.feedback-form textarea').fill('We do have dental cover; the HR team owns it.');
+      await reply.locator('.feedback-form button:has-text("Send")').click();
+      await toast(p, 'Thanks');
+      const pressed = await reply.locator('button[aria-label="Not helpful"]').getAttribute('aria-pressed');
+      return (pressed === 'true' && (await reply.locator('.feedback-form').count()) === 0) || `pressed=${pressed}`;
+    });
+    await check('assistant: "Helpful" can be given and taken back', async () => {
+      const reply = p.locator('.msg-assistant').first();
+      const up = reply.locator('button[aria-label="Helpful"]');
+      await up.click();
+      await p.waitForFunction(() => document.querySelector('.msg-assistant button[aria-label="Helpful"]')?.getAttribute('aria-pressed') === 'true');
+      await up.click();
+      await p.waitForFunction(() => document.querySelector('.msg-assistant button[aria-label="Helpful"]')?.getAttribute('aria-pressed') === 'false');
+    });
     await check('assistant: "Answer from" narrows answers to one team, and the reply says so', async () => {
       await p.click('.scope-picker > summary');
       await p.selectOption('.scope-fields select >> nth=0', { label: 'Engineering' });
@@ -765,6 +783,12 @@ async function signOut(page) {
       await p.waitForSelector('.insights');
       const t = await p.textContent('.insights');
       return (/\d+ questions/.test(t) && t.includes('salary bands') && !t.includes('Aarav')) || t.slice(0, 200);
+    });
+    await check('admin: answers marked unhelpful are listed, without who marked them', async () => {
+      const panel = p.locator('.feedback-panel');
+      await panel.locator('li').first().waitFor({ timeout: 10000 });
+      const t = await panel.textContent();
+      return (t.includes('dental insurance') && t.includes("should have said it doesn't know") && !t.includes('Aarav')) || t.slice(0, 240);
     });
     await check('admin: activity filter shows only refused opens', async () => {
       await p.click('.admin-tabs >> text=Activity');

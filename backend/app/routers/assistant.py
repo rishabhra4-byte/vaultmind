@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import actions, metrics
+from .. import actions, feedback, metrics
 from ..assistant import QUICK, respond
 from ..chat_log import record_exchange, short_title
 from ..database import get_db
@@ -18,6 +18,7 @@ from ..schemas import (
     ChatOut,
     ConversationDetail,
     ConversationOut,
+    FeedbackIn,
     MessageOut,
 )
 from ..services import viewer
@@ -45,15 +46,19 @@ def _openable(db: Session, user: User, document_id: int) -> Document:
     return doc
 
 
-def _with_current_actions(db: Session, messages: list[Message]) -> list[MessageOut]:
-    """Messages as stored, with each action card showing what has happened to it since."""
+def _with_current_actions(db: Session, user: User, messages: list[Message]) -> list[MessageOut]:
+    """Messages as stored, with each action card showing what has happened to it since, and the
+    person's own feedback on each answer."""
     ids = [a["id"] for m in messages for a in (m.meta or {}).get("actions", []) if isinstance(a, dict) and "id" in a]
     rows = {r.id: r for r in db.scalars(select(AssistantAction).where(AssistantAction.id.in_(ids)))} if ids else {}
+    given = feedback.for_messages(db, user, [m.id for m in messages if m.role == "assistant"])
     out = []
     for m in messages:
         meta = dict(m.meta or {})
         if meta.get("actions"):
             meta["actions"] = [actions.as_dict(rows[a["id"]]) if a.get("id") in rows else a for a in meta["actions"]]
+        if m.id in given:
+            meta["feedback"] = given[m.id]
         out.append(MessageOut(id=m.id, role=m.role, content=m.content, meta=meta, created_at=m.created_at))
     return out
 
@@ -120,13 +125,25 @@ def conversations(document_id: int | None = None, user: User = Depends(current_u
 def conversation(conversation_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     convo = _own_conversation(db, user, conversation_id)
     base = ConversationOut.model_validate(convo)
-    return ConversationDetail(**base.model_dump(), messages=_with_current_actions(db, list(convo.messages)))
+    return ConversationDetail(**base.model_dump(), messages=_with_current_actions(db, user, list(convo.messages)))
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_conversation(conversation_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     db.delete(_own_conversation(db, user, conversation_id))
     db.commit()
+
+
+@router.post("/messages/{message_id}/feedback")
+def give_feedback(message_id: int, body: FeedbackIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Mark one of your answers helpful or not (rating None takes it back)."""
+    msg = db.get(Message, message_id)
+    if msg is None or msg.role != "assistant":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Answer not found")
+    _own_conversation(db, user, msg.conversation_id)  # 404 for anyone else's
+    result = feedback.set_feedback(db, user, msg, body.rating, body.reason, body.note)
+    db.commit()
+    return {"feedback": result}
 
 
 @router.post("/actions", response_model=ActionOut, status_code=status.HTTP_201_CREATED)

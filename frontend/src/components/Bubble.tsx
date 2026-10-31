@@ -2,10 +2,21 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { useApp } from "../state";
-import type { AssistantAction, Conflict, DocCard, LockedHint, Message } from "../types";
+import type { AnswerFeedback, AssistantAction, Conflict, DocCard, FeedbackReason, LockedHint, Message } from "../types";
 import { ActionCard } from "./ActionCard";
 import { ClassTag, timeAgo } from "./bits";
-import { IconAlert, IconCopy, IconExternal, IconFile, IconHistory, IconLock, IconSave, IconSparkle } from "./icons";
+import {
+  IconAlert,
+  IconCopy,
+  IconExternal,
+  IconFile,
+  IconHistory,
+  IconLock,
+  IconSave,
+  IconSparkle,
+  IconThumbDown,
+  IconThumbUp,
+} from "./icons";
 import { numberCitations, RichText } from "./RichText";
 
 const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -132,6 +143,58 @@ function SourceFacts({ n, title, card }: { n: number; title: string; card: DocCa
   );
 }
 
+const REASONS: [FeedbackReason, string][] = [
+  ["wrong", "The answer was wrong"],
+  ["missing", "Something was missing"],
+  ["source", "It used the wrong document"],
+  ["should_abstain", "It should have said it doesn't know"],
+  ["other", "Something else"],
+];
+
+/** "What was wrong?" after a thumbs-down: a reason and an optional note. */
+function FeedbackForm({ onSend, onCancel }: { onSend: (reason: FeedbackReason, note: string) => void; onCancel: () => void }) {
+  const [reason, setReason] = useState<FeedbackReason>("");
+  const [note, setNote] = useState("");
+  const groupId = useId();
+  return (
+    <form
+      className="feedback-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSend(reason, note);
+      }}
+    >
+      <fieldset>
+        <legend id={groupId}>What was wrong? (optional)</legend>
+        <div className="chip-row" role="radiogroup" aria-labelledby={groupId}>
+          {REASONS.map(([value, label]) => (
+            <label key={value} className={`chip ${reason === value ? "selected" : ""}`}>
+              <input
+                type="radio"
+                name={`reason-${groupId}`}
+                value={value}
+                checked={reason === value}
+                onChange={() => setReason(value)}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <label className="field">
+        <span>Anything else? (optional)</span>
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={2} />
+      </label>
+      <div className="row">
+        <button className="btn small primary">Send</button>
+        <button type="button" className="btn small ghost" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function Bubble({
   message,
   animate,
@@ -159,6 +222,7 @@ export function Bubble({
   const [asking, setAsking] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [opened, setOpened] = useState<number | null>(null); // an action card the person opened themselves
+  const [explaining, setExplaining] = useState(false); // the "what was wrong?" form after a thumbs-down
   const titles = useMemo(() => {
     const t = new Map<number, string>();
     for (const c of [...(meta.citations ?? []), ...(meta.suggestions ?? [])]) t.set(c.id, c.title);
@@ -199,6 +263,19 @@ export function Bubble({
       notify("Answer copied");
     } catch {
       notify("Couldn't copy. Select the text instead.", "error");
+    }
+  }
+
+  async function rate(rating: AnswerFeedback["rating"] | null, reason: FeedbackReason = "", note = "") {
+    try {
+      const r = await api<{ feedback: AnswerFeedback | null }>(`/api/assistant/messages/${message.id}/feedback`, {
+        method: "POST",
+        json: { rating, reason, note },
+      });
+      onUpdate({ ...message, meta: { ...meta, feedback: r.feedback ?? undefined } });
+      if (rating) notify(rating === "up" ? "Thanks, glad it helped" : "Thanks, this helps improve the answers");
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : "Couldn't send that", "error");
     }
   }
 
@@ -364,6 +441,37 @@ export function Bubble({
         {done && (
           <div className="msg-tools">
             <span className={`answer-label ${meta.mode === "ai" ? "ai" : ""}`}>{MODE_LABEL[meta.mode ?? "offline"]}</span>
+            {message.id > 0 && (
+              <>
+                <button
+                  className="icon-btn"
+                  aria-label="Helpful"
+                  title="Helpful"
+                  aria-pressed={meta.feedback?.rating === "up"}
+                  onClick={() => {
+                    setExplaining(false);
+                    rate(meta.feedback?.rating === "up" ? null : "up");
+                  }}
+                >
+                  <IconThumbUp width={14} height={14} />
+                </button>
+                <button
+                  className="icon-btn"
+                  aria-label="Not helpful"
+                  title="Not helpful"
+                  aria-pressed={meta.feedback?.rating === "down"}
+                  aria-expanded={explaining}
+                  onClick={() => {
+                    if (meta.feedback?.rating === "down") {
+                      setExplaining(false);
+                      rate(null);
+                    } else setExplaining(!explaining);
+                  }}
+                >
+                  <IconThumbDown width={14} height={14} />
+                </button>
+              </>
+            )}
             {canSave && (
               <button className="icon-btn" onClick={save} disabled={saving} aria-label="Save this answer as a document">
                 <IconSave width={14} height={14} /> Save
@@ -373,6 +481,15 @@ export function Bubble({
               <IconCopy width={14} height={14} /> Copy
             </button>
           </div>
+        )}
+        {done && explaining && (
+          <FeedbackForm
+            onSend={(reason, note) => {
+              setExplaining(false);
+              rate("down", reason, note);
+            }}
+            onCancel={() => setExplaining(false)}
+          />
         )}
       </div>
     </div>
