@@ -151,6 +151,14 @@ docker compose up --build
 
 Open http://localhost:8000, click **Try the demo**, and pick a person to sign in as. Every demo password is `demo1234`.
 
+### A public demo link (Render, free)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/rishabhra4-byte/vaultmind)
+
+Click the button, sign in to Render (a GitHub account works), and approve the one service it shows. Render builds the Docker image from [`render.yaml`](render.yaml) and gives the demo an address like `https://vaultmind-demo.onrender.com` (with a few random characters added if that name is taken). The first build takes several minutes.
+
+It's a demo only. On the free plan it sleeps after 15 minutes without visitors (the next visit wakes it in about a minute), and it starts over with the demo company each time, so anything visitors upload disappears. Anyone with the link can sign in as any demo person, including the administrator, so never put real documents on it. Sign-in takes a couple of seconds on the free plan's small share of a CPU.
+
 ### Local development
 
 ```bash

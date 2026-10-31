@@ -1,0 +1,30 @@
+# A public demo of VaultMind on Render's free plan: the "Deploy to Render" button in the
+# README sets it up from this file. It runs the demo company (Northwind Labs) only.
+#
+# - Data lives inside the container: it resets to the demo company whenever the service
+#   restarts or goes to sleep (after 15 minutes without visitors; waking takes about a minute).
+# - Anyone with the link can sign in as any demo person, including the administrator, and
+#   upload files. Never put real documents on it. For a real install, see docs/operations.md.
+# - No AI key: answers are built offline, and every answer says so.
+services:
+  - type: web
+    runtime: docker
+    name: vaultmind-demo
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/ready
+    autoDeployTrigger: commit # redeploy when main changes
+    envVars:
+      - key: PORT # the image listens on 8000; this tells Render to send traffic there
+        value: "8000"
+      - key: VAULTMIND_JWT_SECRET
+        generateValue: true # random, made by Render once; never in this file
+      - key: VAULTMIND_SEED_DEMO_DATA
+        value: "true"
+      - key: VAULTMIND_HSTS # Render serves the site over HTTPS
+        value: "true"
+      # Render's proxy is the only way in, so trust its X-Forwarded-For header; otherwise every
+      # visitor would share one address and one sign-in limit.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
