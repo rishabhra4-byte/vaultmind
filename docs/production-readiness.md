@@ -496,7 +496,7 @@ was saved with them.
 | # | Item | Why | How to finish it |
 |---|---|---|---|
 | H-D1 | **A real ClamAV** | No Docker daemon here; tested against a stand-in that speaks `clamd`'s protocol | `docker compose --profile clamav up -d clamav`, set the address, upload the EICAR test file ([operations.md](operations.md#malware-scanning)) |
-| H-D2 | **The Docker restore drill and `promtool`** | No Docker daemon here; CI's Docker job runs both | See H5 |
+| H-D2 | ~~The Docker restore drill and `promtool`~~ | *Verified in CI* ([H5](#h5-ci)) | |
 | H-D3 | **A real Prometheus** scraping a running install | No Prometheus here | Scrape config in [operations.md](operations.md#monitoring); trigger `VaultMindBackupCheckFailed` by corrupting a test backup |
 | H-D4 | **The new prompts with the real Claude API** | Same as D1; tested with a recording stand-in | Run `tests/test_live_anthropic.py`, then ask the "things to try" questions in the README |
 | H-D5 | **Answer quality in AI mode** | The benchmark ran offline; `python -m eval.run --ai` needs a key | Run it with a key and compare with the offline numbers |
@@ -505,4 +505,12 @@ was saved with them.
 
 ### H5. CI
 
-Pending: filled in from the pull request's run.
+Pull request #3 (commit `612b445`), GitHub Actions run 41229125094: **all seven jobs passed on the first run.**
+
+| Job | Result | New in this round |
+|---|---|---|
+| backend (sqlite) | pass, 260 s | The answer-quality gate: no regressions against the baseline |
+| backend (postgres) | pass, 418 s | Sessions, backups (round trip into an empty PostgreSQL database), scanning, metrics and the AI policy on PostgreSQL |
+| frontend | pass | |
+| e2e (chromium), e2e (firefox), e2e (webkit) | pass, 342 s, 359 s, 450 s | 447 checks each, including the new evidence, filter and session checks |
+| docker runtime | pass, 351 s | `promtool check rules` on the alert rules; a backup made in the production container passed its restore check and was restored into a new PostgreSQL database with matching row counts |
