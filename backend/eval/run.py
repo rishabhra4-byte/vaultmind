@@ -35,11 +35,13 @@ TRACKED = [
     ("mrr", True),
     ("ndcg_at_10", True),
     ("answer_accuracy", True),
+    ("answer_supported", True),
     ("citation_precision", True),
     ("abstain_recall", True),
     ("false_abstain_rate", False),
     ("deny_accuracy", True),
     ("conflict_recall", True),
+    ("false_conflicts_on_no_conflict_cases", False),
     ("outdated_recall", True),
 ]
 TOLERANCE = 0.01
@@ -419,14 +421,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--save-baseline", action="store_true")
     parser.add_argument("--ai", action="store_true", help="use the AI service (needs VAULTMIND_ANTHROPIC_API_KEY)")
     args = parser.parse_args(argv)
+    if (args.check or args.save_baseline) and (args.split or args.ai):
+        # The baseline is every case, offline: comparing one split, or AI answers, against it means nothing.
+        parser.error("--check and --save-baseline run over all cases, offline (no --split or --ai)")
 
     report = run(args.split, args.ai)
     print_report(report, args.split or "all cases")
     if args.out:
         args.out.write_text(json.dumps(report, indent=1))
     if args.save_baseline:
-        if args.split or args.ai:
-            raise SystemExit("Save the baseline from an offline run over all cases")
         BASELINE.write_text(json.dumps({"summary": report["summary"], "by_tag": report["by_tag"]}, indent=1) + "\n")
         print(f"\nSaved {BASELINE.relative_to(HERE.parent)}")
     if args.check:

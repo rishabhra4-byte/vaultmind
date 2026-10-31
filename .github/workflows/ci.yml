@@ -36,8 +36,8 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: Lint and format
         run: |
-          ruff check app tests alembic
-          ruff format --check app tests alembic
+          ruff check app tests alembic eval
+          ruff format --check app tests alembic eval
       - name: Known vulnerabilities in dependencies
         run: pip install pip-audit && pip-audit -r requirements.txt
       - name: Tests (${{ matrix.database }})
@@ -46,6 +46,17 @@ jobs:
             export VAULTMIND_DATABASE_URL=postgresql+psycopg://vaultmind:vaultmind@localhost:5432/vaultmind_test
           fi
           pytest
+      - name: Answer quality has not regressed (benchmark against eval/baseline.json)
+        # The benchmark builds its own throwaway SQLite database, so one leg is enough.
+        if: matrix.database == 'sqlite'
+        run: python -m eval.run --check --out eval-report.json
+      - name: Keep the benchmark report
+        if: always() && matrix.database == 'sqlite'
+        uses: actions/upload-artifact@v4
+        with:
+          name: answer-quality-report
+          path: backend/eval-report.json
+          if-no-files-found: ignore
 
   frontend:
     runs-on: ubuntu-24.04
