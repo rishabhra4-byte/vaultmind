@@ -7,6 +7,7 @@ from ..assistant import QUICK, respond
 from ..chat_log import record_exchange, short_title
 from ..database import get_db
 from ..deps import chat_limiter, current_user
+from ..filters import DocFilter
 from ..models import AssistantAction, Conversation, Document, Message, User
 from ..policy import is_discoverable_to
 from ..schemas import (
@@ -83,7 +84,17 @@ def chat(body: ChatIn, user: User = Depends(current_user), db: Session = Depends
         db.flush()
 
     history = list(convo.messages)
-    reply = respond(db, user, question, history, document_id=document_id, intent=body.intent, compare_with=body.compare_with)
+    filters = DocFilter(**body.filters.model_dump()) if body.filters else None
+    reply = respond(
+        db,
+        user,
+        question,
+        history,
+        document_id=document_id,
+        intent=body.intent,
+        compare_with=body.compare_with,
+        filters=filters,
+    )
     user_msg, bot_msg = record_exchange(db, user, convo, question, reply, intent=body.intent, document_id=document_id)
     db.commit()
     return ChatOut(

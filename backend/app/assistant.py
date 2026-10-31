@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 
 from . import actions, facts, glossary, retrieval
 from .config import get_settings
+from .filters import DocFilter
 from .llm import LLM, REASONS, LLMError, get_llm
 from .models import AccessRequest, Document, DocumentVersion, Message, Position, RequestStatus, SourceKind, User
 from .policy import can_view, is_discoverable_to
@@ -197,10 +198,12 @@ def _snippet(hit: DocHit, question: str) -> tuple[int, str]:
     return _passage_of(hit, snippet), snippet
 
 
-def _locked_hints(db: Session, view: AccessView, query: str) -> list[dict]:
+def _locked_hints(db: Session, view: AccessView, query: str, filters: DocFilter | None = None) -> list[dict]:
     candidates = {
         doc_id for doc_id, doc in view.docs.items() if doc_id not in view.allowed and is_discoverable_to(view.user, doc)
     }
+    if filters is not None:
+        candidates = filters.narrow(view, candidates)
     if not candidates:
         return []
     # Title-only matching: hints must never reveal anything about a locked file's contents.
@@ -362,12 +365,14 @@ def _rewrite(llm: LLM, question: str, terms: list[glossary.Entry]) -> str:
     return re.sub(r"[^\w\s'-]", " ", text).strip()[:200]
 
 
-def _find(db: Session, view: AccessView, question: str, query: str, llm: LLM | None) -> tuple[Ranking, dict]:
-    """Search the documents the person can open (see retrieval.py), asking the model for better
-    search words when the evidence found is weak."""
+def _find(
+    db: Session, view: AccessView, question: str, query: str, llm: LLM | None, only: set[int] | None = None
+) -> tuple[Ranking, dict]:
+    """Search the documents the person can open (narrowed to `only`; see retrieval.py), asking
+    the model for better search words when the evidence found is weak."""
     terms = glossary.entries(db)
     top_k = get_settings().retrieval_top_k
-    ranking = retrieval.rank(db, view, query, top_k=top_k, terms=terms)
+    ranking = retrieval.rank(db, view, query, top_k=top_k, terms=terms, only=only)
     info = ranking.info
     if llm is not None and not ranking.enough:
         try:
@@ -376,7 +381,7 @@ def _find(db: Session, view: AccessView, question: str, query: str, llm: LLM | N
             log.info("Search rewrite skipped: %s", exc)
             rewritten = ""
         if rewritten and rewritten.lower() != question.lower():
-            better = retrieval.rank(db, view, f"{query} {rewritten}", top_k=top_k, terms=terms)
+            better = retrieval.rank(db, view, f"{query} {rewritten}", top_k=top_k, terms=terms, only=only)
             if better.hits and (better.enough or better.coverage > ranking.coverage):
                 ranking, info = better, {**better.info, "rewritten": rewritten}
     return ranking, info
@@ -476,6 +481,7 @@ def _offline_answer(
     locked: list[dict],
     conflicts: list[dict],
     outdated: dict[int, str],
+    scope: str | None = None,
 ) -> str:
     lines: list[str] = []
     if ranking.enough and sources:
@@ -491,10 +497,13 @@ def _offline_answer(
             lines.append("\n" + _conflict_line(c, view.docs))
     elif not suggestions:
         missing = _missing(ranking)
-        lines.append("I couldn't find enough evidence to answer that in the documents you can open.")
+        where = f"among {scope}" if scope else "in the documents you can open"
+        lines.append(f"I couldn't find enough evidence to answer that {where}.")
         if missing:
             quoted = " or ".join(f"“{w}”" for w in missing)
             lines[-1] += f" None of them mention {quoted}."
+        if scope:
+            lines[-1] += " Removing a filter may help."
         closest = ranking.hits[:3]
         if closest:
             lines.append("\nThe closest matches, which may not answer it:")
@@ -517,9 +526,21 @@ def _offline_answer(
     return "\n".join(lines)
 
 
-def _answer_question(db: Session, view: AccessView, question: str, history: list[Message], llm: LLM | None) -> Reply:
+def _answer_question(
+    db: Session,
+    view: AccessView,
+    question: str,
+    history: list[Message],
+    llm: LLM | None,
+    filters: DocFilter | None = None,
+) -> Reply:
     query = _retrieval_query(question, history)
-    ranking, search_info = _find(db, view, question, query, llm)
+    active = filters is not None and filters.active
+    only = filters.narrow(view) if active else None
+    ranking, search_info = _find(db, view, question, query, llm, only)
+    scope = filters.describe(view) if active else None
+    if scope:
+        search_info = {**search_info, "scope": scope}
     hits = ranking.hits
 
     suggestions: list[dict] = []
@@ -529,7 +550,7 @@ def _answer_question(db: Session, view: AccessView, question: str, history: list
             suggestions.append({**_doc_card(rec.document), "why": "; ".join(rec.reasons)})
             extra_docs.append(rec.document)
 
-    locked = _locked_hints(db, view, query)
+    locked = _locked_hints(db, view, query, filters if active else None)
     proposals = _access_proposals(question, locked)
     sources = _supporting(ranking) if ranking.enough else []
     conflicts = _conflicts(question, ranking, view, sources) if sources else []
@@ -611,7 +632,7 @@ def _answer_question(db: Session, view: AccessView, question: str, history: list
         except Exception as exc:
             fallback = _model_failed(exc)
 
-    content = _offline_answer(ranking, sources, view, suggestions, locked, conflicts, outdated)
+    content = _offline_answer(ranking, sources, view, suggestions, locked, conflicts, outdated, scope)
     shown = sources if ranking.enough else hits[:3]
     citations = [card(h) for h in shown]
     notice = None
@@ -1009,8 +1030,10 @@ def respond(
     document_id: int | None = None,
     intent: str | None = None,
     compare_with: int | None = None,
+    filters: DocFilter | None = None,
 ) -> Reply:
-    """Answer a question as `user`. With `document_id`, about that one document."""
+    """Answer a question as `user`. With `document_id`, about that one document. `filters`
+    narrow which documents a general question is answered from (never widen them)."""
     view = access_view(db, user)
     llm = get_llm()
     scope = None
@@ -1046,6 +1069,6 @@ def respond(
         return _answer_about_document(db, view, scope, question, _doc_intent(question, intent), history, llm)
     if intent is None and (SUMMARY_INTENT.search(question) or KEY_POINTS_INTENT.search(question)):
         named = _named_document(view, question)  # "summarise the expense policy"
-        if named:
+        if named and (filters is None or filters.matches(named[0])):
             return _answer_about_document(db, view, named[0], question, _doc_intent(question, None), history, llm)
-    return _answer_question(db, view, question, history, llm)
+    return _answer_question(db, view, question, history, llm, filters)

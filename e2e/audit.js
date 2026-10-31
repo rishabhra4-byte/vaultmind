@@ -343,6 +343,45 @@ async function signOut(page) {
       await p.waitForSelector('.msg-user:has-text("hotel limit")');
       await p.waitForSelector('.msg-assistant:has-text("7,000")', { timeout: 10000 });
     });
+    await check('assistant: documents that disagree are flagged, the newer one first', async () => {
+      const note = p.locator('.msg-assistant').last().locator('.conflict-note');
+      await note.waitFor({ timeout: 5000 });
+      const t = await note.textContent();
+      return (t.indexOf('Expense Reimbursement Policy') < t.indexOf('Travel Policy 2024') && t.includes('6,000')) || t;
+    });
+    await check('assistant: an out-of-date source is tagged; "Why these sources" gives owner, date and access', async () => {
+      const last = p.locator('.msg-assistant').last();
+      const tagged = await last.locator('.source:has(.stale-tag)').first().textContent();
+      await last.locator('.why-sources > summary').click();
+      const facts = await last.locator('.why-sources').textContent();
+      const ok = tagged.includes('Travel Policy 2024') && facts.includes('Owner') && facts.includes('Updated') && facts.includes('Your access');
+      return ok || `${tagged} / ${facts.slice(0, 200)}`;
+    });
+    await check('assistant: when no document answers it, the reply says so and lists only "closest matches"', async () => {
+      await p.fill('.composer textarea', 'What is the dental insurance cover for parents?');
+      await p.press('.composer textarea', 'Enter');
+      const reply = p.locator('.msg-assistant:has-text("enough evidence")');
+      await reply.locator('.msg-tools').waitFor({ timeout: 10000 });
+      const t = await reply.textContent();
+      const labels = await reply.locator('.sources-label').allTextContents();
+      return (t.includes('“dental”') && labels.every((l) => l.startsWith('Closest matches'))) || t.slice(0, 240);
+    });
+    await check('assistant: "Answer from" narrows answers to one team, and the reply says so', async () => {
+      await p.click('.scope-picker > summary');
+      await p.selectOption('.scope-fields select >> nth=0', { label: 'Engineering' });
+      const summary = await p.textContent('.scope-picker > summary');
+      await p.fill('.composer textarea', 'What is the hotel limit per night in metro cities?');
+      await p.press('.composer textarea', 'Enter');
+      const reply = p.locator('.msg-assistant:has-text("among Engineering documents")');
+      await reply.locator('.msg-tools').waitFor({ timeout: 10000 });
+      const note = await reply.locator('.search-note').textContent();
+      const folded = !(await p.isVisible('.scope-fields')); // folds away once the question is sent
+      await p.click('.scope-picker > summary');
+      await p.click('.scope-fields button:has-text("Clear")');
+      const cleared = await p.textContent('.scope-picker > summary');
+      const ok = summary.includes('Engineering documents') && note.includes('Only searched Engineering documents') && folded && cleared.includes('all documents you can open');
+      return ok || `${summary} / ${note} / ${folded} / ${cleared}`;
+    });
     await check('assistant: a link with ?ask= does not send a question on the person\'s behalf', async () => {
       await p.goto(BASE + '/?ask=' + encodeURIComponent('Planted question from a link'));
       await p.waitForSelector('.chat');
@@ -448,6 +487,30 @@ async function signOut(page) {
       await p.click('.chip:has-text("Confidential")');
       const n = (await p.$$('.doc-row')).length;
       return (tags.length === 1 && tags[0] === 'Confidential' && n === total) || `${tags} / ${n}`;
+    });
+    await check('library: filter by when a document was last updated', async () => {
+      const when = 'select[aria-label="Filter by when it was updated"]';
+      await p.selectOption(when, '90');
+      await p.waitForFunction((t) => document.querySelectorAll('.doc-row').length < t, total);
+      const titles = await p.$$eval('.doc-title', (els) => els.map((e) => e.textContent));
+      await p.selectOption(when, '');
+      await p.waitForFunction((t) => document.querySelectorAll('.doc-row').length === t, total);
+      return (titles.length > 0 && !titles.some((t) => t.includes('Travel Policy 2024'))) || titles.join(', ');
+    });
+    await check('library: filter by who added a document', async () => {
+      const who = 'select[aria-label="Filter by who added it"]';
+      await p.selectOption(who, { label: 'Added by Ananya Gupta' });
+      await p.waitForFunction((t) => document.querySelectorAll('.doc-row').length < t, total);
+      const titles = await p.$$eval('.doc-title', (els) => els.map((e) => e.textContent));
+      await p.selectOption(who, '');
+      await p.waitForFunction((t) => document.querySelectorAll('.doc-row').length === t, total);
+      return (titles.some((t) => t.includes('Expense Reimbursement Policy')) && !titles.some((t) => t.includes('Code of Conduct'))) || titles.join(', ');
+    });
+    await check('library: a misspelt search still finds the document', async () => {
+      await p.fill('.search-box input', 'reimbursment');
+      await p.waitForSelector('.doc-row:first-child .doc-title:has-text("Expense Reimbursement Policy")');
+      await p.fill('.search-box input', '');
+      await p.waitForFunction((t) => document.querySelectorAll('.doc-row').length === t, total);
     });
     await check('library: team filter', async () => {
       await p.selectOption('select[aria-label="Filter by team"]', { label: 'Finance' });

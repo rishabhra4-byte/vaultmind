@@ -32,6 +32,7 @@ def document_out(doc: Document, viewer: "Viewer", pending: set[int] = frozenset(
         tags=(doc.tags or []) if decision.allowed else [],
         sensitivity_flags=(doc.sensitivity_flags or []) if decision.allowed else [],
         uploaded_by=doc.uploader.full_name if doc.uploader else None,
+        uploaded_by_id=doc.uploaded_by,
         created_at=doc.created_at,
         updated_at=doc.updated_at,
         version=doc.version or 1,

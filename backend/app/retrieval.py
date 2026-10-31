@@ -389,6 +389,7 @@ def rank(
     top_k: int = 10,
     terms: list[glossary.Entry] | None = None,
     only: set[int] | None = None,
+    candidates: int = CANDIDATES,
 ) -> Ranking:
     """The documents (with their best passages) that best match `question`, best first, among
     the documents `view` may open (narrowed to `only` when given, e.g. by filters)."""
@@ -405,13 +406,13 @@ def rank(
     if not weights:
         return Ranking([], query, expanded, corrections, acronyms, concepts)
 
-    candidates = index.search_terms(weights, allowed_doc_ids=allowed, top_k=CANDIDATES, chunks_per_doc=3)
-    if not candidates:
+    found = index.search_terms(weights, allowed_doc_ids=allowed, top_k=max(candidates, top_k), chunks_per_doc=3)
+    if not found:
         return Ranking([], query, expanded, corrections, acronyms, concepts)
-    max_bm25 = max(c.score for d in candidates for c in d.chunks)
+    max_bm25 = max(c.score for d in found for c in d.chunks)
 
     rescored: list[tuple[float, DocHit]] = []
-    for d in candidates:
+    for d in found:
         doc = view.docs[d.doc_id]
         title_terms = set(tokenize(" ".join([doc.title, *(doc.tags or [])])))
         scored = []

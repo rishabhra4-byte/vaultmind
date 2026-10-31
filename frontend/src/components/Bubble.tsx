@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { useApp } from "../state";
-import type { AssistantAction, LockedHint, Message } from "../types";
+import type { AssistantAction, Conflict, DocCard, LockedHint, Message } from "../types";
 import { ActionCard } from "./ActionCard";
-import { ClassTag } from "./bits";
-import { IconCopy, IconFile, IconHistory, IconLock, IconSave, IconSparkle } from "./icons";
+import { ClassTag, timeAgo } from "./bits";
+import { IconAlert, IconCopy, IconExternal, IconFile, IconHistory, IconLock, IconSave, IconSparkle } from "./icons";
 import { numberCitations, RichText } from "./RichText";
 
 const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -28,6 +28,110 @@ export const MODE_LABEL: Record<string, string> = {
   direct: "Prepared by VaultMind without AI",
 };
 
+/** The offline answer states a disagreement in a fixed sentence; the callout below shows it instead. */
+const DISAGREE_LINE = /^These documents disagree: .*$/gm;
+
+/** What the search did, in words: corrected spelling, acronyms, extra words, the filters used. */
+function searchNotes(search: Message["meta"]["search"]): string[] {
+  if (!search) return [];
+  const notes: string[] = [];
+  for (const c of search.corrected ?? []) notes.push(`Showing results for “${c.to}” (you typed “${c.from}”)`);
+  for (const a of search.acronyms ?? []) notes.push(`Read ${a.acronym} as “${a.means}”`);
+  if (search.rewritten) notes.push(`Searched for “${search.rewritten}” too`);
+  else if (search.expanded?.length) notes.push(`Also searched for ${search.expanded.slice(0, 4).join(", ")}`);
+  if (search.scope) notes.push(`Only searched ${search.scope}`);
+  return notes;
+}
+
+function passageLink(id: number, passage?: number) {
+  return `/library/${id}${passage !== undefined ? `#p${passage}` : ""}`;
+}
+
+/** Two documents that disagree, newest first, so the person can check which applies. */
+function ConflictNote({ conflicts }: { conflicts: Conflict[] }) {
+  return (
+    <div className="conflict-note" role="note">
+      <IconAlert width={16} height={16} />
+      <div>
+        <p className="conflict-title">{conflicts.length > 1 ? "Some documents disagree" : "These documents disagree"}</p>
+        {conflicts.map((c) => (
+          <p key={`${c.a.id}-${c.b.id}`}>
+            <Link to={passageLink(c.a.id, c.a.passage)}>{c.a.title}</Link>{" "}
+            <span className="muted">(newer, updated {timeAgo(c.a.updated_at)})</span> says <strong>{c.a.says.join(" and ")}</strong>;{" "}
+            <Link to={passageLink(c.b.id, c.b.passage)}>{c.b.title}</Link>{" "}
+            <span className="muted">(updated {timeAgo(c.b.updated_at)})</span> says <strong>{c.b.says.join(" and ")}</strong>.
+          </p>
+        ))}
+        <p className="muted small">The newer one usually applies. Check with its owner if it matters.</p>
+      </div>
+    </div>
+  );
+}
+
+/** Facts about one source: how fresh, who owns it, where it comes from, why it was used. */
+function SourceFacts({ n, title, card }: { n: number; title: string; card: DocCard }) {
+  const origin = card.source
+    ? `${card.source.name} (${card.source.kind})${card.source.synced_at ? `, synced ${timeAgo(card.source.synced_at)}` : ""}`
+    : card.owner;
+  return (
+    <li>
+      <p className="facts-title">
+        <span className="source-n">{n}</span> {title}
+      </p>
+      <dl className="facts">
+        {card.updated_at && (
+          <>
+            <dt>Updated</dt>
+            <dd>
+              {timeAgo(card.updated_at)}
+              {card.version && card.version > 1 ? `, version ${card.version}` : ""}
+            </dd>
+          </>
+        )}
+        {origin && (
+          <>
+            <dt>{card.source ? "Synced from" : "Owner"}</dt>
+            <dd>
+              {origin}
+              {card.source?.url && (
+                <>
+                  {" "}
+                  <a href={card.source.url} target="_blank" rel="noopener noreferrer" className="facts-link">
+                    Open the original <IconExternal width={12} height={12} />
+                    <span className="sr-only"> (opens in a new tab)</span>
+                  </a>
+                </>
+              )}
+            </dd>
+          </>
+        )}
+        <dt>Team</dt>
+        <dd>
+          {card.team}, <ClassTag value={card.classification} />
+        </dd>
+        {card.matched && card.matched.length > 0 && (
+          <>
+            <dt>Matched</dt>
+            <dd>{card.matched.join(", ")}</dd>
+          </>
+        )}
+        {card.access && (
+          <>
+            <dt>Your access</dt>
+            <dd>{card.access}</dd>
+          </>
+        )}
+        {card.outdated && (
+          <>
+            <dt>Check</dt>
+            <dd className="facts-stale">May be out of date. {card.outdated}</dd>
+          </>
+        )}
+      </dl>
+    </li>
+  );
+}
+
 export function Bubble({
   message,
   animate,
@@ -44,7 +148,14 @@ export function Bubble({
 }) {
   const { notify } = useApp();
   const { meta } = message;
-  const [shown, done] = useTypewriter(message.content, animate && message.role === "assistant");
+  const conflicts = meta.conflicts ?? [];
+  // Shown once, as the callout, rather than also as a sentence of the answer.
+  const text = useMemo(
+    () => (conflicts.length ? message.content.replace(DISAGREE_LINE, "").replace(/\n{3,}/g, "\n\n").trim() : message.content),
+    [message.content, conflicts.length],
+  );
+  const [shown, done] = useTypewriter(text, animate && message.role === "assistant");
+  const labelId = useId();
   const [asking, setAsking] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [opened, setOpened] = useState<number | null>(null); // an action card the person opened themselves
@@ -53,7 +164,7 @@ export function Bubble({
     for (const c of [...(meta.citations ?? []), ...(meta.suggestions ?? [])]) t.set(c.id, c.title);
     return t;
   }, [meta]);
-  const cites = useMemo(() => numberCitations(message.content, titles), [message.content, titles]);
+  const cites = useMemo(() => numberCitations(text, titles), [text, titles]);
 
   if (message.role === "user") {
     return (
@@ -108,6 +219,9 @@ export function Bubble({
   }
 
   const sources = [...cites.entries()].map(([id, c]) => ({ id, ...c, card: meta.citations?.find((x) => x.id === id) }));
+  // Not enough evidence: what's listed are the nearest documents, not the basis of an answer.
+  const weak = meta.evidence?.enough === false;
+  const notes = searchNotes(meta.search);
   const canSave =
     message.id > 0 && meta.mode !== "direct" && sources.length > 0 && !actions.some((a) => a.kind === "save_summary");
   return (
@@ -124,21 +238,37 @@ export function Bubble({
           {!done && <span className="caret" aria-hidden />}
         </div>
 
+        {done && conflicts.length > 0 && <ConflictNote conflicts={conflicts} />}
+
         {done && sources.length > 0 && (
-          <ol className="sources" aria-label="Sources">
-            {sources.map((s) => (
-              <li key={s.id}>
-                <Link
-                  to={`/library/${s.id}${s.card?.passages?.length ? `#p${s.card.passages[0]}` : ""}`}
-                  className={`source ${s.card ? `class-edge-${s.card.classification}` : ""}`}
-                  title={s.card ? `${s.card.team}, ${s.card.classification}` : undefined}
-                >
-                  <span className="source-n">{s.n}</span>
-                  {s.title}
-                </Link>
-              </li>
-            ))}
-          </ol>
+          <div className="answer-sources">
+            <p className="sources-label" id={labelId}>
+              {weak ? "Closest matches, which may not answer it" : "Sources"}
+            </p>
+            <ol className="sources" aria-labelledby={labelId}>
+              {sources.map((s) => (
+                <li key={s.id}>
+                  <Link
+                    to={passageLink(s.id, s.card?.passages?.[0])}
+                    className={`source ${s.card ? `class-edge-${s.card.classification}` : ""}`}
+                    title={s.card ? `${s.card.team}, ${s.card.classification}` : undefined}
+                  >
+                    <span className="source-n">{s.n}</span>
+                    {s.title}
+                    {s.card?.outdated && <span className="stale-tag">May be out of date</span>}
+                  </Link>
+                </li>
+              ))}
+            </ol>
+            {sources.some((s) => s.card?.updated_at) && (
+              <details className="why-sources">
+                <summary>Why these sources</summary>
+                <ol>
+                  {sources.map((s) => s.card && <SourceFacts key={s.id} n={s.n} title={s.title} card={s.card} />)}
+                </ol>
+              </details>
+            )}
+          </div>
         )}
 
         {done && meta.mode === "ai" && meta.suggestions && meta.suggestions.length > 0 && cites.size === 0 && (
@@ -229,13 +359,7 @@ export function Bubble({
             <ActionCard key={a.id} action={a} onChange={updateAction} compact={compact} autoFocus={a.id === opened} />
           ))}
 
-        {done && meta.search && (meta.search.expanded?.length || meta.search.rewritten) && (
-          <p className="search-note">
-            {meta.search.rewritten
-              ? `Searched for “${meta.search.rewritten}” too`
-              : `Also searched for ${meta.search.expanded!.slice(0, 4).join(", ")}`}
-          </p>
-        )}
+        {done && notes.length > 0 && <p className="search-note">{notes.join(" · ")}</p>}
 
         {done && (
           <div className="msg-tools">

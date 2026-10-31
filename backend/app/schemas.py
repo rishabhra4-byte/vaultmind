@@ -91,6 +91,7 @@ class DocumentOut(BaseModel):
     tags: list[str]
     sensitivity_flags: list[str]
     uploaded_by: str | None
+    uploaded_by_id: int | None = None
     created_at: UTCDatetime
     updated_at: UTCDatetime
     version: int = 1
@@ -176,12 +177,24 @@ class RecommendationOut(BaseModel):
     reasons: list[str]
 
 
+class ChatFilters(BaseModel):
+    """Which documents a general question is answered from. Only ever narrows what the person
+    may open; the same filters as the library's."""
+
+    team_id: int | None = None
+    classification: Classification | None = None
+    source: str | None = Field(None, max_length=20, pattern=r"^(uploaded|\d+)$")  # "uploaded" or a source id
+    owner_id: int | None = None
+    updated_within_days: int | None = Field(None, ge=1, le=3650)
+
+
 class ChatIn(BaseModel):
     message: str = Field("", max_length=2000)  # may be empty for a quick action (`intent`)
     conversation_id: int | None = None
     document_id: int | None = None  # ask about this one document
     intent: Literal["summary", "key_points", "for_me", "changes", "compare"] | None = None
     compare_with: int | None = None  # the second document, for "compare"
+    filters: ChatFilters | None = None
 
 
 class MessageOut(ORM):

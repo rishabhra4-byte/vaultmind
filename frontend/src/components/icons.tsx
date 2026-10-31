@@ -264,3 +264,16 @@ export const IconChecklist = (p: P) => (
     <path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17" />
   </Svg>
 );
+
+export const IconAlert = (p: P) => (
+  <Svg {...p}>
+    <path d="M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+    <path d="M12 9v4M12 17h.01" />
+  </Svg>
+);
+
+export const IconFilter = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 5h18M6.5 12h11M10 19h4" />
+  </Svg>
+);

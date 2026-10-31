@@ -3,12 +3,13 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import audit, storage
+from .. import audit, retrieval, storage
 from ..config import get_settings
 from ..database import get_db
 from ..deps import current_user
 from ..extract import UnsupportedFile, extract_text
 from ..files import content_disposition, media_type_for, safe_filename
+from ..filters import DocFilter
 from ..models import (
     DEFAULT_MIN_POSITION,
     AccessGrant,
@@ -43,7 +44,7 @@ from ..schemas import (
     VersionOut,
     WhoCanAccess,
 )
-from ..search import index, title_index
+from ..search import title_index
 from ..sensitivity import rank, redact, scan
 from ..serializers import document_out
 from ..services import (
@@ -58,6 +59,9 @@ from ..services import (
 )
 from ..text import extractive_summary, keywords
 from ..versions import diff_text
+
+# Most documents a library search returns.
+LIBRARY_RESULTS = 50
 
 MAX_PASSAGE_CHARS = 80_000  # how much of a document's text the page shows
 
@@ -104,39 +108,34 @@ def list_documents(
     team_id: int | None = None,
     classification: Classification | None = None,
     source: str | None = Query(None, description='"uploaded", or a source id'),
+    owner_id: int | None = Query(None, description="only documents this person uploaded"),
+    updated_within_days: int | None = Query(None, ge=1, le=3650),
     include_locked: bool = True,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
     view = access_view(db, user)
-    candidates = set(view.allowed)
+    filters = DocFilter(team_id, classification, source, owner_id, updated_within_days)
+    openable = filters.narrow(view)
+    locked: set[int] = set()
     if include_locked:
-        candidates |= {i for i, d in view.docs.items() if is_discoverable_to(user, d)}
+        # Only what the library already shows about a locked document (team, classification,
+        # uploader, date) is used to filter it, so filters reveal nothing new.
+        locked = filters.narrow(view, {i for i, d in view.docs.items() if is_discoverable_to(user, d)} - view.allowed)
 
     if q and q.strip():
-        # Content search only over documents the user can open; locked documents match on
-        # their title alone, so search results can't be used to probe what they contain.
-        openable = [h.doc_id for h in index.search(q, allowed_doc_ids=set(view.allowed), top_k=50)]
-        locked = candidates - set(view.allowed)
-        by_title = [h.doc_id for h in title_index.search(q, allowed_doc_ids=locked, top_k=50)] if locked else []
-        ordered = openable + by_title
+        # Content search (with typo, word-form and acronym matching) only over documents the
+        # user can open; locked documents match on their title alone, so search results can't
+        # be used to probe what they contain.
+        ranked = retrieval.rank(db, view, q, top_k=LIBRARY_RESULTS, only=openable, candidates=LIBRARY_RESULTS)
+        ordered = [h.doc_id for h in ranked.hits]
+        if locked:
+            ordered += [h.doc_id for h in title_index.search(q, allowed_doc_ids=locked, top_k=LIBRARY_RESULTS)]
     else:
-        ordered = sorted(candidates, key=lambda i: (i in view.allowed, view.docs[i].updated_at), reverse=True)
+        ordered = sorted(openable | locked, key=lambda i: (i in view.allowed, view.docs[i].updated_at), reverse=True)
 
     pending = _pending_ids(db, user)
-    out = []
-    for doc_id in ordered:
-        doc = view.docs[doc_id]
-        if team_id and doc.owner_team_id != team_id:
-            continue
-        if classification and doc.classification != classification:
-            continue
-        if source == "uploaded" and doc.source_id is not None:
-            continue
-        if source and source.isdigit() and doc.source_id != int(source):
-            continue
-        out.append(document_out(doc, view, pending))
-    return out
+    return [document_out(view.docs[i], view, pending) for i in ordered]
 
 
 @router.get("/documents/{doc_id}", response_model=DocumentDetail)

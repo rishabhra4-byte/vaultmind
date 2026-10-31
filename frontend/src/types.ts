@@ -44,6 +44,7 @@ export interface Doc {
   tags: string[];
   sensitivity_flags: string[];
   uploaded_by: string | null;
+  uploaded_by_id: number | null;
   created_at: string;
   updated_at: string;
   access: AccessInfo;
@@ -104,6 +105,47 @@ export interface DocCard {
   why?: string;
   /** Paragraphs cited, by their position in the document. */
   passages?: number[];
+  updated_at?: string;
+  version?: number;
+  /** Who uploaded it (documents synced from a source are owned there). */
+  owner?: string;
+  source?: { name: string; kind: string; synced_at: string | null; url: string | null };
+  /** Why this person may open it, in words. */
+  access?: string;
+  /** Words of the question this document matched. */
+  matched?: string[];
+  /** Set when it may be out of date: a newer document disagrees, or it hasn't changed in a year. */
+  outdated?: string;
+}
+
+/** Whether the documents hold enough to answer. */
+export interface Evidence {
+  enough: boolean;
+  coverage: number;
+  /** Words of the question that no document the person can open mentions. */
+  missing?: string[];
+}
+
+/** Two documents that disagree about what was asked; `a` is the newer one. */
+export interface Conflict {
+  a: ConflictSide;
+  b: ConflictSide;
+  about: string[];
+}
+
+export interface ConflictSide {
+  id: number;
+  title: string;
+  says: string[];
+  sentence: string;
+  passage: number;
+  updated_at: string;
+}
+
+/** Narrow which documents the assistant answers from (never widens access). */
+export interface AnswerFilters {
+  team_id?: number;
+  updated_within_days?: number;
 }
 
 export interface LockedHint {
@@ -154,7 +196,16 @@ export interface Message {
     fallback?: { reason: string; message: string };
     notice?: string;
     ai_blocked?: DocCard[];
-    search?: { expanded?: string[]; rewritten?: string };
+    search?: {
+      expanded?: string[];
+      rewritten?: string;
+      corrected?: { from: string; to: string }[];
+      acronyms?: { acronym: string; means: string }[];
+      /** The filters the answer was limited to, in words. */
+      scope?: string;
+    };
+    evidence?: Evidence;
+    conflicts?: Conflict[];
     actions?: AssistantAction[];
     changes?: { id: number; title: string; version: number; from_version: number }[];
   };
