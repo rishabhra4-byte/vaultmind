@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import actions
+from .. import actions, metrics
 from ..assistant import QUICK, respond
 from ..chat_log import record_exchange, short_title
 from ..database import get_db
 from ..deps import chat_limiter, current_user
+from ..filters import DocFilter
 from ..models import AssistantAction, Conversation, Document, Message, User
 from ..policy import is_discoverable_to
 from ..schemas import (
@@ -83,7 +84,21 @@ def chat(body: ChatIn, user: User = Depends(current_user), db: Session = Depends
         db.flush()
 
     history = list(convo.messages)
-    reply = respond(db, user, question, history, document_id=document_id, intent=body.intent, compare_with=body.compare_with)
+    filters = DocFilter(**body.filters.model_dump()) if body.filters else None
+    reply = respond(
+        db,
+        user,
+        question,
+        history,
+        document_id=document_id,
+        intent=body.intent,
+        compare_with=body.compare_with,
+        filters=filters,
+    )
+    evidence = "n/a" if not reply.evidence else ("enough" if reply.evidence.get("enough") else "not_enough")
+    metrics.inc("vaultmind_answers_total", mode=reply.mode, evidence=evidence)
+    if reply.fallback_reason:
+        metrics.inc("vaultmind_ai_fallbacks_total", reason=reply.fallback_reason)
     user_msg, bot_msg = record_exchange(db, user, convo, question, reply, intent=body.intent, document_id=document_id)
     db.commit()
     return ChatOut(

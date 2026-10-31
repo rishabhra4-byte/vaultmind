@@ -57,10 +57,15 @@ export default function Activity() {
   const [filter, setFilter] = useState("");
 
   useEffect(() => {
+    // A slower answer for the previous filter must not replace this one's.
+    let current = true;
     setEvents(null);
     api<AuditEvent[]>(`/api/admin/audit?limit=150${filter ? `&action=${encodeURIComponent(filter)}` : ""}`)
-      .then(setEvents)
-      .catch(() => setEvents([]));
+      .then((list) => current && setEvents(list))
+      .catch(() => current && setEvents([]));
+    return () => {
+      current = false;
+    };
   }, [filter]);
 
   return (

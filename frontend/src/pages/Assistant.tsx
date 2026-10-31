@@ -9,6 +9,7 @@ import {
   IconCoins,
   IconCompass,
   IconFile,
+  IconFilter,
   IconPlus,
   IconSend,
   IconSiren,
@@ -17,7 +18,7 @@ import {
   IconTrash,
 } from "../components/icons";
 import { useApp } from "../state";
-import type { Conversation, LockedHint, Message, Onboarding, Recommendation } from "../types";
+import type { AnswerFilters, Conversation, LockedHint, Message, Onboarding, Recommendation } from "../types";
 
 interface Starter {
   text: string;
@@ -55,6 +56,7 @@ export default function Assistant() {
   const [sending, setSending] = useState(false);
   const [freshId, setFreshId] = useState<number | null>(null);
   const [requesting, setRequesting] = useState<LockedHint | null>(null);
+  const [scope, setScope] = useState<AnswerFilters>({});
   const endRef = useRef<HTMLDivElement>(null);
   const askedRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -98,7 +100,7 @@ export default function Assistant() {
       try {
         const res = await api<{ conversation: Conversation; user_message: Message; reply: Message }>("/api/assistant/chat", {
           method: "POST",
-          json: { message, conversation_id: convo },
+          json: { message, conversation_id: convo, filters: Object.keys(scope).length ? scope : undefined },
           signal: controller.signal,
         });
         setFreshId(res.reply.id);
@@ -115,7 +117,7 @@ export default function Assistant() {
         setSending(false);
       }
     },
-    [loadConversations, notify, setParams],
+    [loadConversations, notify, setParams, scope],
   );
 
   // Questions from the command palette or a document page arrive as navigation state, which
@@ -240,6 +242,7 @@ export default function Assistant() {
         </div>
 
         <div className="composer-wrap">
+          <ScopePicker value={scope} onChange={setScope} sending={sending} />
           <form
             className="composer"
             onSubmit={(e) => {
@@ -324,6 +327,78 @@ export default function Assistant() {
         />
       )}
     </div>
+  );
+}
+
+const RECENCY_DAYS = [7, 30, 90, 365];
+
+/** Which documents answers come from: a team, how recent. Only ever narrows what you can open. */
+function ScopePicker({
+  value,
+  onChange,
+  sending,
+}: {
+  value: AnswerFilters;
+  onChange: (f: AnswerFilters) => void;
+  sending: boolean;
+}) {
+  const { meta } = useApp();
+  const ref = useRef<HTMLDetailsElement>(null);
+  // Fold away once a question is sent, so the answer has the room (the summary still shows the scope).
+  useEffect(() => {
+    if (sending && ref.current) ref.current.open = false;
+  }, [sending]);
+  const team = meta?.teams.find((t) => t.id === value.team_id);
+  const active = Object.keys(value).length > 0;
+  const label = [
+    team ? `${team.name} documents` : "all documents you can open",
+    value.updated_within_days ? `updated in the last ${value.updated_within_days} days` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  function set(key: keyof AnswerFilters, raw: string) {
+    const next = { ...value };
+    if (raw) next[key] = Number(raw);
+    else delete next[key];
+    onChange(next);
+  }
+
+  return (
+    <details ref={ref} className={`scope-picker ${active ? "active" : ""}`}>
+      <summary>
+        <IconFilter width={14} height={14} /> Answer from <strong>{label}</strong>
+      </summary>
+      <div className="scope-fields">
+        <label>
+          Team
+          <select value={value.team_id ?? ""} onChange={(e) => set("team_id", e.target.value)}>
+            <option value="">All teams</option>
+            {meta?.teams.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Updated
+          <select value={value.updated_within_days ?? ""} onChange={(e) => set("updated_within_days", e.target.value)}>
+            <option value="">Any time</option>
+            {RECENCY_DAYS.map((d) => (
+              <option key={d} value={d}>
+                In the last {d === 365 ? "year" : `${d} days`}
+              </option>
+            ))}
+          </select>
+        </label>
+        {active && (
+          <button type="button" className="link-btn" onClick={() => onChange({})}>
+            <u>Clear</u>
+          </button>
+        )}
+      </div>
+    </details>
   );
 }
 

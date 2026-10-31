@@ -27,6 +27,18 @@ services:
       VAULTMIND_ANTHROPIC_API_KEY: ${VAULTMIND_ANTHROPIC_API_KEY:-}
       VAULTMIND_HSTS: ${VAULTMIND_HSTS:-false}
       VAULTMIND_PUBLIC_URL: ${VAULTMIND_PUBLIC_URL:-}
+      # Scheduled backups, each checked by restoring it (docs/operations.md). Point this at
+      # storage outside this machine (a mounted, encrypted volume), e.g. /backups.
+      VAULTMIND_BACKUP_DIR: ${VAULTMIND_BACKUP_DIR:-}
+      VAULTMIND_BACKUP_INTERVAL_HOURS: ${VAULTMIND_BACKUP_INTERVAL_HOURS:-24}
+      VAULTMIND_BACKUP_KEEP: ${VAULTMIND_BACKUP_KEEP:-14}
+      VAULTMIND_SESSION_IDLE_MINUTES: ${VAULTMIND_SESSION_IDLE_MINUTES:-120}
+      VAULTMIND_AI_MAX_CLASSIFICATION: ${VAULTMIND_AI_MAX_CLASSIFICATION:-confidential}
+      # Malware scanning: start ClamAV with `docker compose --profile clamav up -d` and set
+      # VAULTMIND_CLAMAV_ADDRESS=clamav:3310 in .env.
+      VAULTMIND_CLAMAV_ADDRESS: ${VAULTMIND_CLAMAV_ADDRESS:-}
+      VAULTMIND_CLAMAV_REQUIRED: ${VAULTMIND_CLAMAV_REQUIRED:-true}
+      VAULTMIND_METRICS_TOKEN: ${VAULTMIND_METRICS_TOKEN:-}
       # Optional connections (docs/integrations.md). Unset ones stay off.
       VAULTMIND_FOLDER_ROOTS: ${VAULTMIND_FOLDER_ROOTS:-[]}
       VAULTMIND_GOOGLE_SERVICE_ACCOUNT_FILE: ${VAULTMIND_GOOGLE_SERVICE_ACCOUNT_FILE:-}
@@ -71,6 +83,16 @@ services:
       retries: 20
     restart: unless-stopped
 
+  # Optional malware scanner (docker compose --profile clamav up -d). It downloads virus
+  # definitions at start and needs about 2 GB of memory; the first start takes a few minutes.
+  clamav:
+    image: clamav/clamav:1.4
+    profiles: ["clamav"]
+    volumes:
+      - clamdb:/var/lib/clamav
+    restart: unless-stopped
+
 volumes:
   files:
   pgdata:
+  clamdb:

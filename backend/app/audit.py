@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 
+from . import metrics
 from .models import AuditEvent, User
 
 
@@ -20,4 +21,5 @@ def record(
         detail=detail,
     )
     db.add(event)
+    metrics.count_audit(action, detail)
     return event

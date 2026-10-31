@@ -24,7 +24,7 @@ from pathlib import PurePath
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import audit
+from . import audit, malware, metrics, sessions
 from .config import get_settings
 from .connectors import ConnectorError, DirectoryGroup, DirectoryUser, Grant, build_connector
 from .database import SessionLocal
@@ -45,7 +45,7 @@ from .models import (
     UserIdentity,
     utcnow,
 )
-from .notify import notify
+from .notify import notify, notify_admins
 from .sensitivity import floor_for_flags, rank, scan
 from .services import ingest_document, remove_document, replace_content, safe_external_url, set_principals
 from .text import extractive_summary
@@ -240,6 +240,7 @@ def sync_directory(db: Session, provider: str, source: Source, users: list[Direc
             if any(getattr(user, k) != v for k, v in changes.items()):
                 if changes.get("is_active") is False and user.is_active:
                     stats["deactivated"] += 1
+                    sessions.end_all(db, user.id, "deactivated")
                 for k, v in changes.items():
                     setattr(user, k, v)
                 stats["updated"] += 1
@@ -256,6 +257,7 @@ def sync_directory(db: Session, provider: str, source: Source, users: list[Direc
         if user.id not in seen and not user.is_admin:
             user.is_active = False
             stats["deactivated"] += 1
+            sessions.end_all(db, user.id, "deactivated")
 
     by_email = {u.email.lower(): u.id for u in people.values()}
     for dg in groups:
@@ -329,6 +331,24 @@ def sync_source(db: Session, source: Source) -> SyncReport:
             data, filename = connector.fetch(f)
             if len(data) > max_bytes:
                 raise ConnectorError(f"larger than {get_settings().max_upload_mb} MB")
+            try:
+                verdict = malware.scan(data)
+            except malware.ScanUnavailable:
+                metrics.inc("vaultmind_scan_failures_total", source="sync")
+                raise ConnectorError("not scanned: the virus scanner can't be reached (tried again next sync)") from None
+            if verdict.infected:
+                audit.record(
+                    db, None, "document.sync_blocked", "source", source.id, file=f.name, path=f.path, signature=verdict.signature
+                )
+                notify_admins(
+                    db,
+                    f"Malware blocked in {source.name}: {f.name}",
+                    f"ClamAV found {verdict.signature} in {f.path + '/' if f.path else ''}{f.name}. It wasn't synced.",
+                    "/admin/sources",
+                    dedupe_key=f"malware:{source.id}:{f.external_id}:{f.version_key}",
+                )
+                db.commit()
+                raise ConnectorError(f"blocked: ClamAV found {verdict.signature}")
             text = extract_text(filename, data)
             if not text.strip():
                 raise ConnectorError("no readable text")
@@ -441,6 +461,7 @@ def run_sync(source_id: int, actor_id: int | None = None) -> SyncReport | None:
                 source.status, source.last_error = "error", "The sync failed unexpectedly; see the server log."
             source = db.get(Source, source_id)
             source.status = "error" if source.last_error else "ok"
+            metrics.inc("vaultmind_syncs_total", result=source.status)
             source.last_synced_at = datetime.now(UTC)
             source.stats = report.as_dict()
             actor = db.get(User, actor_id) if actor_id else None

@@ -437,4 +437,43 @@ Status: early due diligence. Technical review of their codebase is scheduled for
 
 Strictly need-to-know. Do not discuss outside the deal team.""",
     ),
+    # ---------------------------------------------------------------- older documents still lying around
+    # Like most companies, Northwind never deleted the policies these replaced. They disagree
+    # with the current ones, which is what the assistant's conflict and out-of-date checks find.
+    dict(
+        title="Travel Policy 2024",
+        summary="Travel booking, hotel and meal limits and claim deadlines for business travel in 2024.",
+        team="Finance",
+        cls=C.PUBLIC,
+        uploader="ananya",
+        tags=["travel", "hotel", "policy"],
+        age=640,
+        body="""# Travel Policy 2024
+
+This policy covers business travel booked in 2024.
+
+Book flights and hotels through the company travel desk. Economy class for flights under four hours.
+
+Hotel limit is INR 6,000 per night in metro cities and INR 4,000 elsewhere. Meals while travelling are reimbursed up to INR 1,200 per day.
+
+Submit travel claims within 45 days of returning, with receipts for every item above INR 500. Your manager approves claims up to INR 20,000; anything above also needs Finance approval.""",
+    ),
+    dict(
+        title="Remote Work Guidelines",
+        summary="Office days, core hours and working from another city or country.",
+        team="Human Resources",
+        cls=C.PUBLIC,
+        uploader="neha",
+        tags=["remote", "hybrid", "office", "policy"],
+        age=420,
+        body="""# Remote Work Guidelines
+
+Employees work from the Bengaluru office two days a week, on Tuesday and Wednesday, and remotely on the other days.
+
+Core collaboration hours are 10:00 to 16:00 IST, when everyone should be reachable on chat and video.
+
+Working from another city in India for up to four weeks needs your manager's approval. Working from outside India is limited to 30 days a year and needs HR approval in advance, for tax reasons.
+
+The company pays INR 2,000 a month towards home internet for employees who work remotely at least two days a week.""",
+    ),
 ]

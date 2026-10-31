@@ -6,13 +6,14 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import audit, sso
+from .. import audit, metrics, sessions, sso
 from ..config import get_settings
 from ..database import get_db
-from ..deps import current_user, login_limiter_account, login_limiter_ip
+from ..deps import current_auth, current_user, login_limiter_account, login_limiter_ip
 from ..models import User
 from ..schemas import LoginIn, TokenOut, UserOut
-from ..security import DUMMY_HASH, create_access_token, verify_password
+from ..security import DUMMY_HASH, verify_password
+from ..sessions import Auth
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 log = logging.getLogger(__name__)
@@ -31,14 +32,24 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     if user is None or not password_ok:
         login_limiter_ip.record(ip)
         login_limiter_account.record(email)
+        metrics.inc("vaultmind_sign_ins_total", method="password", result="failed")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email or password")
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This account is disabled")
     if not get_settings().password_login and not user.is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Sign in with your company account instead")
-    audit.record(db, user, "auth.login", "user", user.id)
+    token = sessions.start(db, user, request, "password")
+    audit.record(db, user, "auth.login", "user", user.id, method="password", ip=sessions.client_ip(request))
     db.commit()
-    return TokenOut(access_token=create_access_token(user.id), user=UserOut.of(user))
+    return TokenOut(access_token=token, user=UserOut.of(user))
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(auth: Auth = Depends(current_auth), db: Session = Depends(get_db)):
+    """End this session on the server, so the token stops working even if it was copied."""
+    sessions.end(db, auth.session, "signed_out")
+    audit.record(db, auth.user, "auth.logout", "user", auth.user.id)
+    db.commit()
 
 
 @router.get("/me", response_model=UserOut)
@@ -95,13 +106,14 @@ def sso_callback(
         user = sso.sign_in(db, p.id, ident)
     except sso.SSOError as exc:
         db.rollback()
+        metrics.inc("vaultmind_sign_ins_total", method=p.id, result="failed")
         log.info("Sign-in with %s refused: %s", provider, exc)
         resp = RedirectResponse(f"/signin?sso_error={exc.code}", status_code=303)
         resp.delete_cookie(SSO_COOKIE, path="/api/auth/sso")
         return resp
-    audit.record(db, user, "auth.login", "user", user.id, method=p.id)
+    token = sessions.start(db, user, request, p.id)
+    audit.record(db, user, "auth.login", "user", user.id, method=p.id, ip=sessions.client_ip(request))
     db.commit()
-    token = create_access_token(user.id)
     # In the fragment: never sent to a server, never in logs or Referer headers.
     resp = RedirectResponse(f"/signin#token={token}&next={quote(saved['next'], safe='')}", status_code=303)
     resp.delete_cookie(SSO_COOKIE, path="/api/auth/sso")

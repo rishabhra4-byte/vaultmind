@@ -5,8 +5,15 @@ from app.text import best_snippet, chunk_text, stem, tokenize
 
 
 def test_tokenize_and_stem():
-    assert stem("policies") == "policy"
-    assert stem("reviews") == "review"
+    assert stem("policies") == stem("policy")
+    assert stem("reviews") == stem("review")
+    # Porter stemming relates the forms of a word, which the old suffix stripper missed.
+    assert stem("required") == stem("require") == stem("requirement")
+    assert stem("approval") == stem("approved") == stem("approver")
+    assert stem("rating") == stem("ratings") == stem("rated")
+    assert stem("travelling") == stem("travel")
+    assert stem("sent") == stem("send") and stem("paid") == stem("pay")  # irregular forms
+    assert "s" not in tokenize("What's the policy?")  # contractions split into stop words
     assert "the" not in tokenize("What is the leave policy?")
     assert tokenize("Leave Policies") == tokenize("leave policy")
 
@@ -59,6 +66,27 @@ def test_scanner_flags_compensation_as_confidential():
 
 def test_scanner_leaves_ordinary_text_public():
     assert scan("Our office is closed on public holidays.").suggested == C.PUBLIC
+
+
+def test_confidential_marker_needs_a_document_marking_itself():
+    """The word in passing doesn't make a document confidential: the office Wi-Fi guide says
+    print jobs wait for your badge "so nothing confidential sits in the tray"."""
+    for marked in (
+        "# Salary Bands 2026 (confidential)\n\nBands...",
+        "Q3 report (confidential, board use)",
+        "CONFIDENTIAL\nPayroll for October",
+        "Confidential: do not forward",
+        "This document is confidential.",
+        "Strictly confidential. Leadership only.",
+        "Shared under NDA with the vendor.",
+    ):
+        assert "confidential_marker" in scan(marked).flags, marked
+    for ordinary in (
+        "Print jobs are held until you tap your badge, so nothing confidential sits in the tray.",
+        "Never discuss confidential matters in the cafeteria.",
+        "Treat customer data as confidential.",
+    ):
+        assert "confidential_marker" not in scan(ordinary).flags, ordinary
 
 
 def test_redact_masks_identifiers_but_keeps_context():

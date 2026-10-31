@@ -36,8 +36,8 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: Lint and format
         run: |
-          ruff check app tests alembic
-          ruff format --check app tests alembic
+          ruff check app tests alembic eval
+          ruff format --check app tests alembic eval
       - name: Known vulnerabilities in dependencies
         run: pip install pip-audit && pip-audit -r requirements.txt
       - name: Tests (${{ matrix.database }})
@@ -46,6 +46,17 @@ jobs:
             export VAULTMIND_DATABASE_URL=postgresql+psycopg://vaultmind:vaultmind@localhost:5432/vaultmind_test
           fi
           pytest
+      - name: Answer quality has not regressed (benchmark against eval/baseline.json)
+        # The benchmark builds its own throwaway SQLite database, so one leg is enough.
+        if: matrix.database == 'sqlite'
+        run: python -m eval.run --check --out eval-report.json
+      - name: Keep the benchmark report
+        if: always() && matrix.database == 'sqlite'
+        uses: actions/upload-artifact@v4
+        with:
+          name: answer-quality-report
+          path: backend/eval-report.json
+          if-no-files-found: ignore
 
   frontend:
     runs-on: ubuntu-24.04
@@ -150,6 +161,8 @@ jobs:
           echo "VAULTMIND_SEED_DEMO_DATA=true" >> .env
       - name: Build the production image
         run: docker compose build
+      - name: Alert rules are valid (promtool)
+        run: docker run --rm -v "$PWD/deploy:/rules:ro" --entrypoint promtool prom/prometheus:v3.5.0 check rules /rules/prometheus-alerts.yml
       - name: Production mode refuses to start without a secret
         run: |
           set +e
@@ -186,6 +199,25 @@ jobs:
           docker compose restart app
           for i in $(seq 60); do curl -fs localhost:8000/api/ready >/dev/null && break; sleep 2; done
           bash e2e/docker-smoke.sh http://localhost:8000 --after-restart
+      - name: A backup passes its restore check, and restores into a new PostgreSQL database
+        run: |
+          docker compose exec -T app python -m app.cli backup --out /data/backups
+          archive=$(docker compose exec -T app sh -c 'ls -1 /data/backups/vaultmind-backup-*.tar.gz | tail -1')
+          docker compose exec -T db createdb -U vaultmind vaultmind_restored
+          restored="postgresql+psycopg://vaultmind:vaultmind@db:5432/vaultmind_restored"
+          docker compose exec -T -e VAULTMIND_DATABASE_URL="$restored" -e VAULTMIND_STORAGE_DIR=/tmp/restored app \
+            python -m app.cli restore "$archive" --yes
+          docker compose exec -T -e RESTORED="$restored" app python - <<'EOF'
+          import os
+          from sqlalchemy import create_engine, text
+          live, copy = create_engine(os.environ["VAULTMIND_DATABASE_URL"]), create_engine(os.environ["RESTORED"])
+          for table in ("users", "teams", "documents", "document_chunks", "document_versions", "groups"):
+              with live.connect() as a, copy.connect() as b:
+                  n = a.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
+                  m = b.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
+              print(f"{table}: {n} live, {m} restored")
+              assert n == m and n > 0, table
+          EOF
       - name: No errors in the application log
         run: |
           docker compose logs app > app.log

@@ -11,6 +11,21 @@ export interface User {
   position_label: string;
   is_admin: boolean;
   is_active: boolean;
+  /** False for people who only sign in with Google or Microsoft. */
+  has_password: boolean;
+}
+
+/** A signed-in browser. */
+export interface SignedInSession {
+  id: string;
+  method: string;
+  /** "Chrome on Windows" */
+  device: string;
+  ip: string;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  current: boolean;
 }
 
 export interface Team {
@@ -44,6 +59,7 @@ export interface Doc {
   tags: string[];
   sensitivity_flags: string[];
   uploaded_by: string | null;
+  uploaded_by_id: number | null;
   created_at: string;
   updated_at: string;
   access: AccessInfo;
@@ -51,6 +67,9 @@ export interface Doc {
   version: number;
   /** False when admins or the document's managers keep it away from the AI. */
   ai_enabled: boolean;
+  /** Whether the AI may read it after all: the company's AI policy can rule out its classification. */
+  ai_allowed: boolean;
+  ai_blocked_reason: string | null;
   /** "mirror": synced with the sharing it has in its source (Drive, SharePoint). */
   acl_mode: "native" | "mirror";
   source: SourceRef | null;
@@ -104,6 +123,47 @@ export interface DocCard {
   why?: string;
   /** Paragraphs cited, by their position in the document. */
   passages?: number[];
+  updated_at?: string;
+  version?: number;
+  /** Who uploaded it (documents synced from a source are owned there). */
+  owner?: string;
+  source?: { name: string; kind: string; synced_at: string | null; url: string | null };
+  /** Why this person may open it, in words. */
+  access?: string;
+  /** Words of the question this document matched. */
+  matched?: string[];
+  /** Set when it may be out of date: a newer document disagrees, or it hasn't changed in a year. */
+  outdated?: string;
+}
+
+/** Whether the documents hold enough to answer. */
+export interface Evidence {
+  enough: boolean;
+  coverage: number;
+  /** Words of the question that no document the person can open mentions. */
+  missing?: string[];
+}
+
+/** Two documents that disagree about what was asked; `a` is the newer one. */
+export interface Conflict {
+  a: ConflictSide;
+  b: ConflictSide;
+  about: string[];
+}
+
+export interface ConflictSide {
+  id: number;
+  title: string;
+  says: string[];
+  sentence: string;
+  passage: number;
+  updated_at: string;
+}
+
+/** Narrow which documents the assistant answers from (never widens access). */
+export interface AnswerFilters {
+  team_id?: number;
+  updated_within_days?: number;
 }
 
 export interface LockedHint {
@@ -154,7 +214,16 @@ export interface Message {
     fallback?: { reason: string; message: string };
     notice?: string;
     ai_blocked?: DocCard[];
-    search?: { expanded?: string[]; rewritten?: string };
+    search?: {
+      expanded?: string[];
+      rewritten?: string;
+      corrected?: { from: string; to: string }[];
+      acronyms?: { acronym: string; means: string }[];
+      /** The filters the answer was limited to, in words. */
+      scope?: string;
+    };
+    evidence?: Evidence;
+    conflicts?: Conflict[];
     actions?: AssistantAction[];
     changes?: { id: number; title: string; version: number; from_version: number }[];
   };
@@ -289,8 +358,9 @@ export interface ScanFinding {
 export interface AdminUser extends User {
   auth_provider: string;
   directory_managed: boolean;
-  has_password: boolean;
   onboarding: boolean;
+  /** Browsers signed in right now. */
+  open_sessions: number;
   notify_email: boolean;
   groups: string[];
   created_at: string;

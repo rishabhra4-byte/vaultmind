@@ -17,7 +17,7 @@ from .models import GlossaryTerm
 DEFAULT_TERMS: dict[str, list[str]] = {
     "leave": ["time off", "pto", "vacation", "holiday", "absence"],
     "work from home": ["wfh", "remote work", "working remotely"],
-    "compensation": ["salary", "pay", "ctc", "pay band", "salary band"],
+    "compensation": ["salary", "pay", "ctc", "pay band", "salary band", "earn"],
     "expense": ["reimbursement", "claim", "per diem", "travel allowance"],
     "onboarding": ["new joiner", "new hire", "first week", "getting started"],
     "one-on-one": ["1:1", "one on one", "1on1"],
@@ -29,6 +29,11 @@ DEFAULT_TERMS: dict[str, list[str]] = {
     "notice period": ["resignation", "last working day"],
     "insurance": ["health cover", "medical cover", "mediclaim"],
     "wi-fi": ["wifi", "wireless", "internet access"],
+    "travel": ["trip", "business trip", "work trip", "fly", "flight"],
+    "parental leave": ["paternity", "maternity", "paternity leave", "maternity leave"],
+    "meals": ["food", "lunch", "dinner"],
+    "purchase order": ["po"],
+    "pull request": ["pr", "prs", "merge request"],
 }
 
 MAX_ADDED = 8  # keep the search focused
@@ -64,6 +69,19 @@ def _normal(text: str) -> str:
 def _mentions(normal_text: str, phrase: str) -> bool:
     p = _normal(phrase)
     return len(p.strip()) > 1 and p in normal_text
+
+
+def matches(question: str, glossary: list[Entry]) -> list[tuple[str, list[str]]]:
+    """For each group the question mentions: the phrase it used, and the group's other phrases."""
+    text = _normal(question)
+    out: list[tuple[str, list[str]]] = []
+    for entry in glossary:
+        used = next((p for p in entry.phrases if _mentions(text, p)), None)
+        if used is not None:
+            others = [p.lower() for p in entry.phrases if not _mentions(text, p)]
+            if others:
+                out.append((used.lower(), others))
+    return out
 
 
 def expand(question: str, glossary: list[Entry]) -> tuple[str, list[str]]:

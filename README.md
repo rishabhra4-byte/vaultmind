@@ -24,14 +24,20 @@ The intern gets nothing from the salary sheet. It is never even sent to the mode
 
 ## Features
 
-**Answers people can trust**
+**Answers people can check**
 
+- **Answers with their evidence.** An answer leads with the sentence that answers it and cites the paragraph. Each source shows who owns it, when it was last updated (and which version), where it comes from, the words it matched, and why this person may open it.
+- **Says when it doesn't know.** When no document the person can open answers the question, it says so, names the words no document mentions, and lists the closest matches as just that, instead of guessing.
+- **Flags documents that disagree, and old ones.** "These documents disagree: the Expense Reimbursement Policy (updated 2 days ago) says INR 7,000; the Travel Policy 2024 says INR 6,000." Documents a year old, or contradicted by a newer one, are marked as possibly out of date.
+- **Search that forgives.** Misspellings ("reimbursment"), word forms, acronyms the documents define ("PO" for purchase order), compound names like SDE-2, and a reranking step that weighs how much of the question a passage covers. Corrections come only from documents the person can open.
+- **Filters.** In the library and the assistant: team, who added it, how recently it was updated, where it comes from. Filters only ever narrow what the person can open.
+- **Measured.** An answer-quality benchmark of 229 questions asked as nine different people, including prompt injections, typos, conflicts and questions nothing answers, scores retrieval, answers, citations, abstaining and leaks, and CI fails if any of them gets worse. On the held-out questions (offline mode): Recall@5 1.00, answer accuracy 0.92, citation precision 0.96, conflicts found 100%, permission leaks 0. See [`backend/eval`](backend/eval/).
 - **Permission-aware AI assistant.** Retrieval runs only over documents the person may open, so the language model never sees anything they aren't cleared for. Answers cite their sources, each citation opens the document at the paragraph it came from, and conversations are saved.
 - **Ask about one document.** Open a document and ask beside it: summarise it, list its key points, explain what it means for you (your team, role and level), say what changed in the latest version, or compare it with another document.
 - **What changed.** Every new version is kept. The assistant answers "what changed in the travel policy?" or "what's new?", and the document page shows a sentence-by-sentence comparison of any two versions.
 - **It speaks your company's language.** A glossary of the words people use for the same thing ("PTO", "time off", "leave") widens every search. A few common ones are built in, admins add their own, and when a search finds little the model suggests better search words (only the question is sent, never document text).
 - **It acts only when you say so.** The assistant can offer to ask for access, share a document with a team, group or person, save an answer as a private document, or draft a message. Each is a card with a button; nothing happens until it's pressed, and permissions are checked again at that moment.
-- **AI controls.** Admins and document owners can keep a document, or a whole source, away from the AI. ID numbers, card numbers and secrets are masked before any passage is sent.
+- **AI controls.** Admins and document owners can keep a document, or a whole source, away from the AI, and restricted documents never go to it by default (`VAULTMIND_AI_MAX_CLASSIFICATION`). ID numbers, card numbers and secrets are masked before any text is sent. The [AI data policy](docs/ai-data-policy.md) lists exactly what is sent, when.
 - **Works without an API key.** With no key, an offline mode uses the same permission-filtered search and builds answers from the best-matching passages. Every answer says how it was made.
 
 **Connected to the company**
@@ -49,11 +55,18 @@ The intern gets nothing from the salary sheet. It is never even sent to the mode
 - **Access requests with approvals.** Requests go to people with authority over that document. Approved access is time-boxed, expires automatically, and can be revoked.
 - **Sensitivity scanner.** On every upload and every synced file, it detects PAN, Aadhaar, card numbers, API keys, passwords, salary and finance language, and contact details. It suggests a classification and blocks under-classified uploads unless the uploader explicitly overrides, which is logged.
 
+**Safe to run**
+
+- **Sessions that can be ended.** Signing out ends the session on the server. People see where they're signed in and can sign other browsers out; changing a password does the same. Admins can sign someone out everywhere, and deactivation or a password reset does it automatically. Idle sessions end after two hours.
+- **Backups that are checked.** Scheduled backups of the database and files, each one restored into a scratch database and checked (rows, file checksums, search, an administrator) before it counts. Restores only ever go into an empty database.
+- **Malware scanning.** Every upload and synced file goes through ClamAV before anything reads it; if the scanner is down, files wait rather than slip through.
+- **Monitoring.** Prometheus metrics behind a token, eleven alert rules with a runbook for each, and a request id on every response and log line.
+
 **For admins and new joiners**
 
 - **Admin pages.** People (add, edit, import from a spreadsheet with a preview), teams, groups, connected sources with their sync health, the glossary, the activity log, and insights: what people ask, what found nothing, and documents that may be out of date.
 - **First-week checklist.** New joiners get a short list (ask a question, read the starter documents for their team, see how access works) that ticks itself off as they go.
-- **Role-aware recommendations**, a **command palette** (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>), **light and dark themes**, and a **demo company** (Northwind Labs: 5 teams, 9 people, 26 documents including a synced shared folder) with one-click sign-in as each person.
+- **Role-aware recommendations**, a **command palette** (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>), **light and dark themes**, and a **demo company** (Northwind Labs: 5 teams, 9 people, 28 documents including a synced shared folder and two older policies that contradict current ones) with one-click sign-in as each person.
 
 ---
 
@@ -78,8 +91,8 @@ All of this lives in one pure module, [`backend/app/policy.py`](backend/app/poli
 flowchart LR
     U[Web app or Slack] -->|question| API[FastAPI]
     API --> P{Policy engine<br/>team · position · groups<br/>grants · source sharing}
-    P -->|allowed doc ids| R[BM25 retriever<br/>+ glossary]
-    R -->|passages from allowed docs only,<br/>AI reading on, IDs masked| LLM[Claude]
+    P -->|allowed doc ids| R[BM25 + typos, acronyms, glossary<br/>reranked; evidence and conflicts]
+    R -->|passages from allowed docs only,<br/>AI-allowed classification, IDs masked| LLM[Claude]
     P -->|discoverable but locked| H[Locked hints<br/>title + reason only]
     LLM --> A[Answer citing paragraphs]
     H --> A
@@ -115,7 +128,7 @@ Search follows the same rule. Content matching only ever runs over documents the
 
 ### Design decisions
 
-- **BM25 over embeddings.** It needs no model download or vector database, it's fast and explainable, and it's strong on the keyword-heavy queries people type when looking for a company file. It sits behind a small `add / remove / search` interface, so a hybrid or embedding retriever can replace it later.
+- **BM25 over embeddings, for now.** It needs no model download or vector database, it's fast and explainable, and it's strong on the keyword-heavy queries people type when looking for a company file. A reranking step on top weighs how much of the question each passage covers. Embeddings would help with paraphrased questions, the benchmark's weakest group; they're on the [roadmap](docs/roadmap.md), to be added only once they can be measured on it.
 - **Content-addressed storage.** Files are stored by SHA-256, so identical uploads share one blob and duplicates are detected. Moving to S3 means replacing three functions.
 - **Discoverability is a per-document choice.** Showing a locked title helps people find the right owner, but restricted documents never leak even their existence. Unknown and undiscoverable documents both return `404`.
 
@@ -123,7 +136,7 @@ Search follows the same rule. Content matching only ever runs over documents the
 
 **Backend:** Python 3.12, FastAPI, SQLAlchemy 2, Alembic, PostgreSQL (SQLite for local runs), JWT auth with bcrypt, Anthropic API, pypdf
 **Frontend:** React 18, TypeScript, Vite, React Router, with no UI framework, self-hosted fonts
-**Quality:** pytest (167 tests, on SQLite and PostgreSQL, plus 4 opt-in live Claude checks; Google, Microsoft, Slack, SMTP and sign-in are tested against local fakes of their APIs), a 435-check browser audit run in Chromium, Firefox and WebKit (Playwright + axe), an accessibility review, performance checks, Ruff, pip-audit and npm audit, and a CI job that tests the Docker image itself
+**Quality:** pytest (226 tests, on SQLite and PostgreSQL, plus 4 opt-in live Claude checks; Google, Microsoft, Slack, SMTP, ClamAV and sign-in are tested against local fakes of their APIs), an answer-quality benchmark with a CI gate, a 447-check browser audit run in Chromium, Firefox and WebKit (Playwright + axe), an accessibility review, performance checks, Ruff, pip-audit and npm audit, and a CI job that tests the Docker image itself
 
 ## Run it
 
@@ -165,17 +178,19 @@ The Docker image runs in production mode. On top of the Quickest steps:
    ```bash
    docker compose exec app python -m app.cli create-admin --email you@company.com --name "Your Name"
    ```
-   Then add everyone else on **Admin → People** (one by one, or from a spreadsheet), or sync them from Google Workspace or Microsoft 365, and turn on *Sign in with Google / Microsoft*. Deactivating someone cuts them off at once; a password change doesn't end sessions that are already signed in (they last 8 hours).
+   Then add everyone else on **Admin → People** (one by one, or from a spreadsheet), or sync them from Google Workspace or Microsoft 365, and turn on *Sign in with Google / Microsoft*. Deactivating someone, resetting their password or pressing *Sign out everywhere* ends their sessions at once.
 4. **Files and integrations.** Connect Google Drive, Microsoft 365 or shared folders on **Admin → Sources**, and set up email and Slack if you want them. [`docs/integrations.md`](docs/integrations.md) has the steps for each, and the environment variables are listed in [`.env.example`](.env.example). Set `VAULTMIND_PUBLIC_URL` to the address people use.
 5. **HTTPS.** Put it behind a reverse proxy that terminates TLS, then set `VAULTMIND_HSTS=true`. Publish the port only to the proxy (for example `127.0.0.1:8000:8000`), and set `FORWARDED_ALLOW_IPS` to the proxy's address so sign-in limits see each person's real address.
 6. **One app process.** The search index, the rate limits and the background scheduler (syncs, reminders, email and Slack) live in the app process, so run one container with one worker (the image does). Scaling out needs a shared index, a Redis-backed limiter and a separate scheduler.
-7. **Backups.** Back up the database and the file volume together:
+7. **Backups.** Set `VAULTMIND_BACKUP_DIR` to a mounted folder on encrypted storage off this machine; every backup is checked by restoring it. By hand:
    ```bash
-   docker compose exec -T db pg_dump -U vaultmind vaultmind > vaultmind.sql
-   docker compose cp app:/data/storage ./storage-backup
+   docker compose exec app python -m app.cli backup --out /data/backups     # writes, then checks it
    ```
-   Restore with `psql` into an empty database and copy the folder back, then restart. Database migrations run automatically on start, so upgrading is `git pull && docker compose up -d --build`; back up first.
-8. **AI.** With `VAULTMIND_ANTHROPIC_API_KEY` set, passages from documents the asking person may open are sent to Anthropic to write the answer (with ID numbers and secrets masked). Make sure that fits your company's data policies, and switch AI reading off for any source or document that shouldn't be sent. Without a key, answers are built offline and labelled as such.
+   Restoring, drills and upgrades are in [`docs/operations.md`](docs/operations.md#backups). Migrations run automatically on start, so upgrading is a backup, then `git pull && docker compose up -d --build`.
+8. **Malware scanning and monitoring.** Start ClamAV (`docker compose --profile clamav up -d clamav`) and set `VAULTMIND_CLAMAV_ADDRESS=clamav:3310`. Set `VAULTMIND_METRICS_TOKEN` and load [`deploy/prometheus-alerts.yml`](deploy/prometheus-alerts.yml) into Prometheus.
+9. **AI.** With `VAULTMIND_ANTHROPIC_API_KEY` set, passages from documents the asking person may open are sent to Anthropic to write the answer, masked, and never from restricted documents unless you allow it. Read the [AI data policy](docs/ai-data-policy.md) and check it fits your company's rules. Without a key, answers are built offline and labelled as such.
+
+[`docs/operations.md`](docs/operations.md) covers running it day to day and what to do when an alert fires; [`docs/security-overview.md`](docs/security-overview.md) is written for security reviews.
 
 [`docs/production-readiness.md`](docs/production-readiness.md) has the full audit: what was tested, what was fixed, and what still needs checking before real use.
 
@@ -183,17 +198,20 @@ The Docker image runs in production mode. On top of the Quickest steps:
 
 ```bash
 cd backend
-pytest                 # 167 tests: policy, scanner, search, API flows, leakage, security, migrations, AI errors,
-                       # connectors, sync, sign-in, notifications, Slack, the assistant's actions and admin tools
-ruff check app tests alembic && ruff format --check app tests alembic
+pytest                 # 226 tests: policy, scanner, search, API flows, leakage, security, migrations, AI errors and
+                       # data policy, connectors, sync, sign-in, sessions, backups, malware scanning, metrics, Slack,
+                       # the assistant's evidence, actions and filters, and admin tools
+python -m eval.run --check   # answer-quality benchmark; fails if anything got worse than eval/baseline.json
+python -m eval.run --split test   # just the held-out questions (tune on --split dev)
+ruff check app tests alembic eval && ruff format --check app tests alembic eval
 VAULTMIND_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/vaultmind_test pytest   # same suite on PostgreSQL
 ```
 
 ### Browser audit
 
-[`e2e/audit.js`](e2e/audit.js) drives the real app and checks **435 things**. CI runs it in Chromium, Firefox and WebKit, and again against the production Docker container:
+[`e2e/audit.js`](e2e/audit.js) drives the real app and checks **447 things**. CI runs it in Chromium, Firefox and WebKit, and again against the production Docker container:
 
-- Every flow as six different people: sign-in (including wrong passwords, a corrupted session, and coming back to the page that was asked for), the assistant, paragraph citations, copy, Stop, conversations, confirming an access request from an answer, asking about one document, versions and what changed, the AI switch, notifications, the first-week checklist, the command palette, library search and filters, upload (drag-and-drop, unsupported and empty files, duplicates, the sensitivity override), downloads, access settings, delete with confirmation, approving, denying, cancelling and revoking requests, and the admin pages (people and import, teams, groups, sources, glossary, insights).
+- Every flow as six different people: sign-in (including wrong passwords, a corrupted session, and coming back to the page that was asked for), sessions (signing other browsers out, an admin's *Sign out everywhere*, the reason shown at sign-in), the assistant, paragraph citations, documents that disagree, out-of-date sources and "Why these sources", not-enough-evidence answers, the "Answer from" filters, copy, Stop, conversations, confirming an access request from an answer, asking about one document, versions and what changed, the AI switch, notifications, the first-week checklist, the command palette, library search (including a misspelt word) and filters by team, person and date, upload (drag-and-drop, unsupported and empty files, duplicates, the sensitivity override), downloads, access settings, delete with confirmation, approving, denying, cancelling and revoking requests, and the admin pages (people and import, teams, groups, sources, glossary, insights).
 - Failure handling: the API going offline, a page whose code can't be downloaded (a reload is offered and the rest of the app keeps working), a failed chat message (the draft is kept), and rate limiting.
 - Security and polish: the content security policy, self-hosted fonts, no team list for signed-out visitors, a 404 page, and a title for every page.
 - Every page at 320, 360, 390, 768, 1024, 1280, 1440 and 1920 px, in light and dark: no horizontal overflow, readable headings, and touch targets of at least 24 px.
@@ -219,6 +237,9 @@ npm run a11y && npm run perf
 6. Open any document and press **Ask about this document**, then try *Key points* and *What it means for me*. Click a citation number to jump to its paragraph.
 7. As **Rohan**, ask *"Share the API Design Guidelines with Sales"*. Nothing happens until you press the button on the card.
 8. Sign in as **Dev (Admin)** to see insights (what people ask, what found nothing), the synced demo drive on **Sources**, and the full activity log.
+9. Ask *"What is the hotel limit per night in metro cities?"*. The answer flags that the current expense policy and the 2024 travel policy disagree, and marks the older one. Open **Why these sources** to see who owns each and when it changed. Then set **Answer from** to the last 90 days and ask again.
+10. Ask *"What dental insurance do we have?"*. Nothing in the documents answers it, and the reply says so instead of guessing.
+11. Open the key icon in the sidebar to see where you're signed in, and sign another browser out.
 
 ## Project structure
 
@@ -226,8 +247,16 @@ npm run a11y && npm run perf
 backend/
   app/
     policy.py        access rules: who can view, manage, approve (pure functions)
-    assistant.py     permission-filtered retrieval + LLM / offline answers, one-document questions,
-                     compare, what changed
+    assistant.py     answers: permission-filtered retrieval, evidence, LLM or offline, one-document
+                     questions, compare, what changed
+    retrieval.py     query analysis (typos, acronyms, glossary), reranking, the sentence that answers
+    facts.py         figures, dates and amounts in documents, and documents that disagree
+    filters.py       library and assistant filters (team, owner, date, source)
+    ai_policy.py     what may be sent to the AI service
+    sessions.py      sessions that can be ended, idle timeout
+    backup.py        backups, restore, and the restore check
+    malware.py       ClamAV scanning of every file
+    metrics.py       Prometheus metrics and request ids
     actions.py       actions the assistant offers, run only when confirmed
     glossary.py      company words and search expansion
     llm.py           Anthropic client, error classification, fallback reasons
@@ -246,9 +275,11 @@ backend/
     files.py         safe file names and download headers
     routers/         auth, documents, assistant, access, notifications, sources, directory,
                      glossary, Slack, admin
-    cli.py           operator commands: create-admin, create-user, set-password
+    cli.py           operator commands: create-admin, create-user, set-password, backup,
+                     verify-backup, restore
     seed.py          demo company (and demo_drive/, its synced shared folder)
   alembic/           database migrations (run automatically on start)
+  eval/              answer-quality benchmark: cases, runner, baseline
   tests/
 frontend/
   src/pages/         Landing, Login, Assistant, Library, Document, Requests, Admin (+ admin/ sections), NotFound
@@ -260,18 +291,21 @@ e2e/
   a11y-review.js     keyboard, focus, motion and text-spacing checks, accessibility-tree snapshots
   perf.js            slow-network loading and memory soak
   docker-smoke.sh    smoke test for a running deployment
+deploy/
+  prometheus-alerts.yml     alert rules, each linked to a runbook
 docs/
+  security-overview.md      data flow, access model, accounts, files, gaps (for security reviews)
+  ai-data-policy.md         what is sent to the AI service, when, and how it's tested
+  operations.md             backups and restore, malware scanning, monitoring, runbooks, incidents
   integrations.md           connecting Google, Microsoft, shared folders, email and Slack
+  accessibility.md          accessibility statement
+  roadmap.md                what's next, and how we'll know it's done
   production-readiness.md   audit report and checklist
 ```
 
-## What I'd build next
+## What's next
 
-- Ending existing sessions when a password changes
-- A shared search index, a Redis-backed rate limiter and a separate scheduler, so it can run as several instances
-- Hybrid retrieval (BM25 + embeddings) with re-ranking
-- More sources (Confluence, Notion, Dropbox) and Okta / generic SAML sign-in
-- Confirming the assistant's actions from Slack, not only in the web app
+The [roadmap](docs/roadmap.md): running as several instances, better answers to paraphrased questions (optional self-hosted embeddings, measured on the benchmark), the company's own questions in the benchmark, and governance for a whole company (access reviews, retention and legal holds, a tamper-evident activity log, SCIM and SAML).
 
 ## License
 

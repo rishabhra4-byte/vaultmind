@@ -49,12 +49,73 @@ function Figure({ icon, label, children }: { icon: ReactNode; label: string; chi
 
 const STATUS: Record<string, string> = { ok: "Synced", error: "Failing", syncing: "Syncing", idle: "Not synced yet" };
 
+interface Operations {
+  ai: { max_classification: Classification };
+  scanner: { enabled: boolean; reachable: boolean; required: boolean };
+  backups: {
+    enabled: boolean;
+    interval_hours: number;
+    keep: number;
+    recent: { name: string; created_at: string; size: number; verified: boolean | null; checks: { name: string; ok: boolean; detail: string }[] }[];
+  };
+}
+
+/** Whether uploads and synced files are scanned, and whether the scanner answers. */
+function ScannerStatus({ ops }: { ops: Operations | null }) {
+  if (!ops) return <p className="muted small">Checking…</p>;
+  const { scanner } = ops;
+  if (!scanner.enabled)
+    return (
+      <p className="muted small">
+        <span className="status status-error">Off</span> Files aren't scanned for malware. Set <code>VAULTMIND_CLAMAV_ADDRESS</code> to
+        a ClamAV server (see the operations guide).
+      </p>
+    );
+  return (
+    <p className="muted small">
+      <span className={`status status-${scanner.reachable ? "ok" : "error"}`}>{scanner.reachable ? "Scanning" : "Not answering"}</span>{" "}
+      {scanner.reachable
+        ? "Every upload and synced file is checked by ClamAV before it's stored."
+        : scanner.required
+          ? "Uploads and syncs are paused until ClamAV answers again."
+          : "Files are being accepted without a scan until ClamAV answers again."}
+    </p>
+  );
+}
+
+/** Whether backups run, and whether the newest one passed its restore check. */
+function BackupStatus({ ops }: { ops: Operations | null }) {
+  if (!ops) return <p className="muted small">Checking…</p>;
+  const { backups } = ops;
+  if (!backups.enabled)
+    return (
+      <p className="muted small">
+        <span className="status status-error">Off</span> Scheduled backups aren't set up. Set <code>VAULTMIND_BACKUP_DIR</code> (see the
+        operations guide), or run <code>python -m app.cli backup</code>.
+      </p>
+    );
+  const latest = backups.recent[0];
+  if (!latest) return <p className="muted small">The first backup runs within the hour.</p>;
+  const failed = latest.checks.filter((c) => !c.ok);
+  return (
+    <p className="muted small">
+      <span className={`status status-${latest.verified ? "ok" : latest.verified === null ? "idle" : "error"}`}>
+        {latest.verified ? "Restore check passed" : latest.verified === null ? "Not checked yet" : "Restore check failed"}
+      </span>{" "}
+      Last backup {timeAgo(latest.created_at)}, {(latest.size / 1024 / 1024).toFixed(1)} MB. Every {backups.interval_hours} h, newest{" "}
+      {backups.keep} kept.
+      {failed.length > 0 && ` Failed: ${failed.map((c) => c.name.toLowerCase()).join("; ")}.`}
+    </p>
+  );
+}
+
 export default function Overview() {
   const { notify } = useApp();
   const [stats, setStats] = useState<Stats | null>(null);
   const [insights, setInsights] = useState<Insights | null>(null);
   const [days, setDays] = useState(30);
   const [barsReady, setBarsReady] = useState(false);
+  const [ops, setOps] = useState<Operations | null>(null);
 
   useEffect(() => {
     api<Stats>("/api/admin/stats")
@@ -66,10 +127,20 @@ export default function Overview() {
   }, [notify]);
 
   useEffect(() => {
+    api<Operations>("/api/admin/operations")
+      .then(setOps)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let current = true; // switching periods quickly: only the last one's figures are shown
     setInsights(null);
     api<Insights>(`/api/admin/insights?days=${days}`)
-      .then(setInsights)
-      .catch(() => notify("Couldn't load insights", "error"));
+      .then((i) => current && setInsights(i))
+      .catch(() => current && notify("Couldn't load insights", "error"));
+    return () => {
+      current = false;
+    };
   }, [days, notify]);
 
   const maxClass = stats ? Math.max(1, ...Object.values(stats.by_classification)) : 1;
@@ -249,7 +320,14 @@ export default function Overview() {
                 {insights.ai.mode === "ai" ? "AI answers are on." : "Offline mode: no AI service is set up."}{" "}
                 {insights.ai.documents_ai_off} document{insights.ai.documents_ai_off === 1 ? "" : "s"} and{" "}
                 {insights.ai.sources_ai_off} source{insights.ai.sources_ai_off === 1 ? "" : "s"} are kept away from the AI.
+                {ops && ops.ai.max_classification !== "restricted" && (
+                  <> Nothing above {ops.ai.max_classification} is ever sent to it.</>
+                )}
               </p>
+              <h3>Backups</h3>
+              <BackupStatus ops={ops} />
+              <h3>Malware scanning</h3>
+              <ScannerStatus ops={ops} />
             </section>
           </div>
         )}

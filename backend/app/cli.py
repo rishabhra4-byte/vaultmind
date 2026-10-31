@@ -4,6 +4,9 @@
     python -m app.cli create-user  --email ravi@acme.com --name "Ravi Kumar" --team Engineering \\
                                    --position senior --title "Backend Engineer"
     python -m app.cli set-password --email ravi@acme.com
+    python -m app.cli backup --out /backups          (then checks it restores)
+    python -m app.cli verify-backup /backups         (the newest backup there, or one archive)
+    python -m app.cli restore /backups/vaultmind-backup-....tar.gz --yes   (empty database only)
 
 Passwords are read from VAULTMIND_PASSWORD (or VAULTMIND_ADMIN_PASSWORD for create-admin) if
 set, otherwise prompted for, so they never appear in the shell history or the process list.
@@ -13,8 +16,10 @@ the admin screen.
 
 import argparse
 import getpass
+import json
 import os
 import sys
+from pathlib import Path
 
 from sqlalchemy import func, select
 
@@ -101,6 +106,46 @@ def _password(env: str, prompt: str) -> str:
     return os.environ.get(env) or os.environ.get("VAULTMIND_PASSWORD") or getpass.getpass(prompt)
 
 
+def _backup_command(args: argparse.Namespace) -> int:
+    from . import backup
+    from .config import get_settings
+
+    try:
+        if args.command == "backup":
+            upgrade_database()
+            out = Path(args.out or get_settings().backup_dir or "backups")
+            archive = backup.create(out)
+            print(f"Backup written: {archive}")
+            if args.no_check:
+                return 0
+            report = backup.verify(archive)
+            backup.report_path(archive).write_text(json.dumps(report.as_dict(), indent=1))
+            print(report.text())
+            return 0 if report.ok else 2
+        if args.command == "verify-backup":
+            path = Path(args.archive)
+            if path.is_dir():
+                found = backup.archives(path)
+                if not found:
+                    print(f"Error: no backups in {path}", file=sys.stderr)
+                    return 1
+                path = found[0]
+            report = backup.verify(path)
+            print(json.dumps(report.as_dict(), indent=1) if args.json else report.text())
+            return 0 if report.ok else 2
+        if not args.yes:
+            print("Restoring writes into the configured database and storage folder. Add --yes to go ahead.", file=sys.stderr)
+            return 1
+        manifest = backup.restore(Path(args.archive))
+        rows = sum(manifest["tables"].values())
+        print(f"Restored {rows} rows and {len(manifest['files'])} files from {Path(args.archive).name}.")
+        print("Start VaultMind as usual; the search index is rebuilt at startup. Everyone signs in again.")
+        return 0
+    except backup.BackupError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli", description="VaultMind operator commands")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -120,7 +165,21 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("set-password", help="set a new password for an existing account")
     p.add_argument("--email", required=True)
 
+    p = sub.add_parser("backup", help="back up the database and files, then check the backup restores")
+    p.add_argument("--out", help="folder for the archive (default: VAULTMIND_BACKUP_DIR, or ./backups)")
+    p.add_argument("--no-check", action="store_true", help="skip the restore check")
+
+    p = sub.add_parser("verify-backup", help="restore a backup into a scratch database and check it")
+    p.add_argument("archive", help="a backup archive, or a folder (its newest backup)")
+    p.add_argument("--json", action="store_true", help="print the report as JSON")
+
+    p = sub.add_parser("restore", help="restore a backup into this install's (empty) database and storage")
+    p.add_argument("archive")
+    p.add_argument("--yes", action="store_true", help="confirm: restore into the configured database")
+
     args = parser.parse_args(argv)
+    if args.command in ("backup", "verify-backup", "restore"):
+        return _backup_command(args)
     try:
         if args.command == "create-admin":
             password = _password("VAULTMIND_ADMIN_PASSWORD", "Password for the new admin: ")

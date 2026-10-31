@@ -1,6 +1,6 @@
 # VaultMind production-readiness audit
 
-**Date:** 27 October 2026, with the company features added on 28 October ([section G](#g-company-features-28-october-2026)) · **Code audited:** `main`, commits `3304ed3` to `a9a292e`, then the company features, merged in pull requests #1 and #2 (`main` at `69d1084`) · **Scope:** functionality, AI integration, security, accessibility (WCAG 2.2 AA), browsers and devices, Docker and deployment, fonts and design, performance, data and reliability, testing and CI, SEO and maintainability.
+**Date:** 27 October 2026, with the company features added on 28 October ([section G](#g-company-features-28-october-2026)) and answers you can check plus the pilot basics on 31 October ([section H](#h-answers-you-can-check-and-the-pilot-basics-31-october-2026)) · **Code audited:** `main`, commits `3304ed3` to `a9a292e`, then the company features, merged in pull requests #1 and #2 (`main` at `69d1084`) · **Scope:** functionality, AI integration, security, accessibility (WCAG 2.2 AA), browsers and devices, Docker and deployment, fonts and design, performance, data and reliability, testing and CI, SEO and maintainability.
 
 Every test result below comes from actually running the test. Anything that could not be run says so, with the reason and the steps to finish it.
 
@@ -10,12 +10,13 @@ Every test result below comes from actually running the test. Anything that coul
 
 - **Ready** for a public demo (demo data on) and for a pilot with one team, run as a single container behind HTTPS.
 - **Not yet ready** to be a company's main document system. Before that, it needs:
-  - a test with a real Anthropic key (`tests/test_live_anthropic.py` does it in one command)
+  - a test with a real Anthropic key (`tests/test_live_anthropic.py` does it in one command), and the benchmark run in AI mode
   - each connector, the company sign-in and the Slack app tried against the real Google, Microsoft and Slack services (they are tested only against local stand-ins of their APIs, see [G4](#g4-still-unverified))
+  - a real ClamAV and Prometheus connected and tried ([H4](#h4-still-unverified))
   - a manual pass with a real screen reader and on real phones
-  - sessions that end when a password changes
-  - scheduled backups
-  - a written decision on sending document passages to Anthropic
+  - the company's decision, using the [AI data policy](ai-data-policy.md), on whether and up to which classification documents may go to Anthropic
+  - running as several instances, for more than a few hundred people at once ([roadmap](roadmap.md))
+- **Done on 31 October** from the earlier list: sessions now end when a password changes (and on sign-out, deactivation, by an administrator or after idling), backups are scheduled and each one is checked by restoring it, and the AI data policy is written down and enforced in code.
 
 The details are in [F](#f-release-recommendation) and [G](#g-company-features-28-october-2026). Sections A to F describe the audit of 27 October; the open risk R5 there (people managed only from the command line, no SSO) has since been addressed by the company features.
 
@@ -49,12 +50,12 @@ The details are in [F](#f-release-recommendation) and [G](#g-company-features-28
 
 | # | Risk | Severity | Why it's still open | Mitigation now |
 |---|---|---|---|---|
-| R1 | **Sessions can't be revoked.** Sessions are 8-hour JWTs kept in `localStorage`, and changing a password doesn't end them. | Medium | Needs a session table or a token-version column (a schema change). | Deactivating an account cuts it off on the next request (`test_deactivating_someone_ends_their_signed_in_session`). A strict CSP and no `innerHTML` reduce the chance of an XSS stealing a token. |
+| R1 | **Sessions can't be revoked.** Sessions are 8-hour JWTs kept in `localStorage`, and changing a password doesn't end them. *Fixed on 31 October* ([H-S4](#h2-risks-and-how-theyre-handled)). | Medium | Needs a session table or a token-version column (a schema change). | Deactivating an account cuts it off on the next request (`test_deactivating_someone_ends_their_signed_in_session`). A strict CSP and no `innerHTML` reduce the chance of an XSS stealing a token. |
 | R2 | **Single process only.** The search index and the rate limits are held in memory. | Medium (operations) | Scaling out needs a shared index and Redis. | The image runs one worker, and the README says not to scale out. |
-| R3 | **Uploads aren't scanned for malware.** | Medium | Needs an external scanner such as ClamAV. | Files are never rendered inline: they are served as attachments with an allow-listed type and `nosniff`. |
-| R4 | **With a key set, document passages go to Anthropic.** | Policy | This is a data-processing decision for the company, not a code fix. | Only passages the asking person may open are sent. The README says this plainly. |
+| R3 | **Uploads aren't scanned for malware.** *Addressed on 31 October* with ClamAV ([H-S6](#h2-risks-and-how-theyre-handled)); a real ClamAV is still to be tried ([H-D1](#h4-still-unverified)). | Medium | Needs an external scanner such as ClamAV. | Files are never rendered inline: they are served as attachments with an allow-listed type and `nosniff`. |
+| R4 | **With a key set, document passages go to Anthropic.** *On 31 October* the [AI data policy](ai-data-policy.md) was written down and enforced, with a classification ceiling ([H-S7](#h2-risks-and-how-theyre-handled)); whether to use it remains the company's decision. | Policy | This is a data-processing decision for the company, not a code fix. | Only passages the asking person may open are sent. The README says this plainly. |
 | R5 | **People are managed only from the command line.** There is no self-service password reset and no SSO. | Functional gap | *Addressed on 28 October:* people are now added, edited and imported on the admin page, can be synced from Google or Microsoft, and can sign in with Google or Microsoft (G1). There is still no self-service password reset for password accounts. | `create-admin`, `create-user` and `set-password` operator commands, which are tested. |
-| R6 | **Backups are manual.** | Data loss if neglected | Scheduling depends on where it's hosted. | The procedure is in the README and was drilled locally. |
+| R6 | **Backups are manual.** *Fixed on 31 October*: scheduled and checked by restoring ([H-S5](#h2-risks-and-how-theyre-handled)). | Data loss if neglected | Scheduling depends on where it's hosted. | The procedure is in the README and was drilled locally. |
 | R7 | **Default PostgreSQL password.** If `POSTGRES_PASSWORD` isn't set, it is `vaultmind`. | Low | The database isn't published outside the Compose network. | The README and Compose comments say to set it before the first start. |
 
 ---
@@ -417,3 +418,99 @@ New backend test files: `test_foundation.py` (groups, mirrored sharing, versions
 | G-D5 | **Email** | Tested with a stand-in SMTP class | No mail server here. | Set the SMTP variables, request access to a document, and check the approver's inbox. |
 | G-D6 | **The assistant's new answers with the real Claude API** | Same as D1 | Prompts and citation checks are tested with a fake model. | After D1, try "Compare the travel policy with the expense policy" and the quick actions on a document page. |
 | G-D7 | **Syncing at scale** | Not tested | A sync reads files one by one, inside the single app process. Large drives (tens of thousands of files) will take a long first sync. | Connect a large test folder and time the first and second syncs; the second only downloads changed files. |
+
+---
+
+## H. Answers you can check, and the pilot basics (31 October 2026)
+
+Chosen direction: companies of 100 to 2,000 people, self-hosted by their own infrastructure
+team, choosing VaultMind for **search and answers they can trust**. This round made answers
+checkable and measurable, and closed the gaps a pilot's security review would raise first.
+
+### H1. What was added
+
+- **An answer-quality benchmark** ([`backend/eval`](../backend/eval/)): 229 questions asked as nine
+  people, each labelled with the right documents, the fact the answer must state, and whether
+  the right reply is an answer, a refusal or "not enough evidence". It covers typos, acronyms,
+  paraphrases, conflicts, out-of-date documents, prompt injections and questions nothing answers.
+  Split into dev (for tuning) and test (only reported). CI fails if any tracked score drops by
+  more than 0.01 against [`eval/baseline.json`](../backend/eval/baseline.json), or if anything leaks.
+- **Search**: Porter stemming, typo and word-form matching, acronyms the documents define,
+  compound names (SDE-2), glossary phrases that count only as a whole, and a reranking step
+  that weighs how much of the question a passage covers. Corrections come only from documents
+  the person can open.
+- **Answers with evidence**: the answer leads with the sentence that answers it; sources show
+  owner, update date, version, origin, matched words and why the person may open them;
+  "not enough evidence" with the closest matches labelled as such; documents that disagree
+  shown newest first; old or contradicted documents marked possibly out of date.
+- **Filters** (team, who added it, updated within, source) in the library and the assistant.
+- **Sessions that can be ended**, **checked backups**, **malware scanning**, **metrics and alert
+  rules**, and an **enforced AI data policy** (see the rows below and
+  [operations.md](operations.md), [ai-data-policy.md](ai-data-policy.md)).
+- **Documents for buyers**: [security overview](security-overview.md) with a data-flow diagram,
+  [AI data policy](ai-data-policy.md), [operations and incident response](operations.md), an
+  integration matrix in [integrations.md](integrations.md), an [accessibility statement](accessibility.md)
+  and a [roadmap](roadmap.md).
+
+### H2. Risks, and how they're handled
+
+| # | Risk | How it's handled | Proven by |
+|---|---|---|---|
+| H-S1 | An answer built from text that doesn't answer the question | Evidence must cover enough of the question, or the reply says there isn't enough evidence and names words no document mentions | Benchmark: abstains when nothing answers it 7 of 8 held-out cases; `test_not_enough_evidence_is_said_plainly…` |
+| H-S2 | Two documents give different figures and the answer picks one silently | Conflicting figures of the kind asked (amounts, durations, rates, times) are compared across documents about the same thing; both are shown, newest first | Benchmark: conflicts found 4 of 4 held out, 0 claimed where there are none; `test_documents_that_disagree_are_both_shown_newest_first` |
+| H-S3 | Filters, typo corrections or acronyms reveal locked documents | Filters run after the permission check; corrections and acronyms come only from openable documents | `test_filters_never_widen_access`, `test_spelling_corrections_and_acronyms_only_come_from_documents_you_can_open`; benchmark leak check: 0 |
+| H-S4 | A stolen or old session keeps working (was R1) | Server-side sessions checked on every request; ended by sign-out, password change or reset, deactivation, removed admin rights, an administrator, or 120 idle minutes | `test_sessions.py` (12 tests); browser audit "sessions" checks |
+| H-S5 | Backups that don't restore (was R6) | Scheduled backups, each restored into a scratch database and checked; restores only into an empty database; a backup from another schema version is refused | `test_backup.py` (11 tests, run on SQLite and PostgreSQL); restore drill below |
+| H-S6 | Malware uploaded or synced (was R3) | ClamAV scans every file before it's parsed or stored; files are refused if it can't scan | `test_malware.py` (8 tests against a stand-in `clamd`) |
+| H-S7 | Document text sent to the AI service against company rules (was R4) | Company-wide ceiling (restricted stays local by default), per-source and per-document switches, masking everywhere. Three gaps found and fixed: upload summaries were not masked; change descriptions ignored a document's AI-off setting; follow-up questions could resend an earlier offline answer quoting a document kept from the AI | `test_ai_policy.py` (6 tests) |
+| H-S8 | The metrics endpoint exposes information | Off unless a token is set; constant-time token check; labels are route templates, never paths or questions | `test_metrics.py` |
+| H-S9 | A slow, stale response replaces a newer one (found by the browser audit) | The activity log, library search and insights ignore responses to superseded requests | Browser audit "activity filter shows only refused opens" |
+| H-S10 | Known-vulnerable PDF parser | pypdf 6.21.3 had three new advisories (crafted PDFs causing infinite loops or large memory use); upgraded to 6.21.4 | `pip-audit`: no known vulnerabilities |
+
+### H3. Tests run and their results (31 October)
+
+| Suite | Where | Result |
+|---|---|---|
+| Backend: pytest, SQLite | Local, Python 3.13 | **226 passed**, 4 live tests skipped (255s) |
+| Backend: pytest, PostgreSQL 16 | Local, PostgreSQL 16 | **226 passed**, 4 live tests skipped (270s); the backup round trip and the migrations run on PostgreSQL too |
+| Answer-quality benchmark, held-out test split (85 cases), offline | Local | Recall@5 **1.000**, MRR 0.992, nDCG@10 0.990, answer accuracy **0.921**, answer states the fact 0.984, citation precision **0.955**, abstains when nothing answers it 0.875, wrongly abstains 0.064, refusals handled 1.000, **permission leaks 0**, conflicts found 1.000, false conflicts 0, out-of-date flagged 1.000. Search p50/p95 10/15 ms, whole answer 16/22 ms; a new or changed file is searchable 0.01 s after its sync |
+| The same, dev split (144 cases) | Local | Recall@5 0.995, answer accuracy 0.905, citation precision 0.939, abstains 0.870, wrongly abstains 0.038, leaks 0 |
+| Before this work (held-out split, then 83 cases, the first benchmark run) | Local | Recall@5 0.984, MRR 0.937, answer accuracy 0.825, citation precision 0.712, abstains when nothing answers it 0.17, conflicts found 0 |
+| Restore drill | Local | A backup of a running demo install passed its restore check, was restored with the CLI into a new PostgreSQL 16 database, and VaultMind was started on it: sign-in, the document list and a download worked. Every table's row count matched |
+| Browser audit, Chromium 153 | Local | **447/447 checks, 0 console errors or failed requests** (after fixing the stale-response race the first run found) |
+| Accessibility review (`a11y-review.js`) | Local, Chromium | **24/24**; an axe scan of an answer with its sources and the filters open, light and dark, desktop and phone: 0 violations |
+| Performance (`perf.js`), slow 3G | Local, Chromium | Homepage first paint 2.7 s, 135 KB (was 134 KB); sign-in 3.1 s, layout shift 0; heap grew 0.06 MB over 45 rounds |
+| `pip-audit`, `npm audit` (frontend, e2e) | Local | No known vulnerabilities (after the pypdf upgrade) |
+| Lint, format, TypeScript, production build | Local | pass |
+
+**How the benchmark was used.** Weights and the evidence threshold were tuned on the dev split
+only. One experiment is worth recording: after finding that "What is the dental cover for
+parents?" was answered from the parental-leave paragraph, five questions of that kind were added
+to the benchmark and a rule tried (a subject no document mentions means not enough evidence).
+It changed nothing on dev but broke three correct answers on the held-out split, so it was
+reverted and the questions stay as a known gap (see the [roadmap](roadmap.md)). The baseline
+was saved with them.
+
+### H4. Still unverified
+
+| # | Item | Why | How to finish it |
+|---|---|---|---|
+| H-D1 | **A real ClamAV** | No Docker daemon here; tested against a stand-in that speaks `clamd`'s protocol | `docker compose --profile clamav up -d clamav`, set the address, upload the EICAR test file ([operations.md](operations.md#malware-scanning)) |
+| H-D2 | ~~The Docker restore drill and `promtool`~~ | *Verified in CI* ([H5](#h5-ci)) | |
+| H-D3 | **A real Prometheus** scraping a running install | No Prometheus here | Scrape config in [operations.md](operations.md#monitoring); trigger `VaultMindBackupCheckFailed` by corrupting a test backup |
+| H-D4 | **The new prompts with the real Claude API** | Same as D1; tested with a recording stand-in | Run `tests/test_live_anthropic.py`, then ask the "things to try" questions in the README |
+| H-D5 | **Answer quality in AI mode** | The benchmark ran offline; `python -m eval.run --ai` needs a key | Run it with a key and compare with the offline numbers |
+| H-D6 | **Embeddings** | Not built: no model could be run here to measure them | [Roadmap](roadmap.md) item 2 |
+| H-D7 | **Restoring a large install** | Tested with the demo company | Time a restore of a copy of the pilot's data |
+
+### H5. CI
+
+Pull request #3 (commit `612b445`), GitHub Actions run 41229125094: **all seven jobs passed on the first run.**
+
+| Job | Result | New in this round |
+|---|---|---|
+| backend (sqlite) | pass, 260 s | The answer-quality gate: no regressions against the baseline |
+| backend (postgres) | pass, 418 s | Sessions, backups (round trip into an empty PostgreSQL database), scanning, metrics and the AI policy on PostgreSQL |
+| frontend | pass | |
+| e2e (chromium), e2e (firefox), e2e (webkit) | pass, 342 s, 359 s, 450 s | 447 checks each, including the new evidence, filter and session checks |
+| docker runtime | pass, 351 s | `promtool check rules` on the alert rules; a backup made in the production container passed its restore check and was restored into a new PostgreSQL database with matching row counts |

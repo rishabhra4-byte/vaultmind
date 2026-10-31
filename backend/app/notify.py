@@ -49,6 +49,20 @@ def notify(
     return created
 
 
+def notify_admins(
+    db: Session,
+    title: str,
+    body: str = "",
+    link: str = "/admin",
+    *,
+    kind: str = "system",
+    dedupe_key: str | None = None,
+) -> list[Notification]:
+    """Tell every active administrator (backups, the malware scanner, other operational problems)."""
+    admins = db.scalars(select(User.id).where(User.is_admin.is_(True), User.is_active.is_(True)))
+    return notify(db, admins, kind=kind, title=title, body=body, link=link, dedupe_key=dedupe_key)
+
+
 def recent_readers(db: Session, doc_id: int, days: int = 90) -> set[int]:
     """People who opened or downloaded the document recently."""
     since = datetime.now(UTC) - timedelta(days=days)

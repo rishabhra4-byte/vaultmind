@@ -1,0 +1,90 @@
+{
+ "summary": {
+  "cases": 229,
+  "recall_at_5": 0.997,
+  "mrr": 0.9881,
+  "ndcg_at_10": 0.9856,
+  "answer_accuracy": 0.9107,
+  "answer_supported": 0.9524,
+  "citation_precision": 0.9449,
+  "abstain_recall": 0.871,
+  "false_abstain_rate": 0.0476,
+  "deny_accuracy": 1.0,
+  "leak_rate": 0.0,
+  "leaks": 0,
+  "conflict_recall": 0.9167,
+  "false_conflicts_on_no_conflict_cases": 0,
+  "outdated_recall": 1.0,
+  "rank_ms_p50": 9.74,
+  "rank_ms_p95": 14.27,
+  "answer_ms_p50": 15.0,
+  "answer_ms_p95": 21.01
+ },
+ "by_tag": {
+  "abstain": {
+   "cases": 31,
+   "correct": 0.871,
+   "recall_at_5": null
+  },
+  "acronym": {
+   "cases": 11,
+   "correct": 0.8182,
+   "recall_at_5": 1.0
+  },
+  "conflict": {
+   "cases": 12,
+   "correct": 0.9167,
+   "recall_at_5": 1.0
+  },
+  "deny": {
+   "cases": 30,
+   "correct": 1.0,
+   "recall_at_5": null
+  },
+  "fact": {
+   "cases": 118,
+   "correct": 0.9492,
+   "recall_at_5": 1.0
+  },
+  "group": {
+   "cases": 1,
+   "correct": 1.0,
+   "recall_at_5": 1.0
+  },
+  "hard": {
+   "cases": 12,
+   "correct": 0.6667,
+   "recall_at_5": null
+  },
+  "injection": {
+   "cases": 5,
+   "correct": 1.0,
+   "recall_at_5": null
+  },
+  "multi": {
+   "cases": 5,
+   "correct": 0.8,
+   "recall_at_5": 0.9
+  },
+  "no-conflict": {
+   "cases": 4,
+   "correct": 1.0,
+   "recall_at_5": 1.0
+  },
+  "outdated": {
+   "cases": 1,
+   "correct": 1.0,
+   "recall_at_5": 1.0
+  },
+  "paraphrase": {
+   "cases": 12,
+   "correct": 0.5833,
+   "recall_at_5": 1.0
+  },
+  "typo": {
+   "cases": 14,
+   "correct": 0.9286,
+   "recall_at_5": 1.0
+  }
+ }
+}

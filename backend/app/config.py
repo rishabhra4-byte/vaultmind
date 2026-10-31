@@ -3,6 +3,7 @@ import secrets
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 log = logging.getLogger("vaultmind.config")
@@ -36,6 +37,24 @@ class Settings(BaseSettings):
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 8
+    # Sign people out after this long without a request (0 turns it off). Sessions also end at
+    # sign-out, on a password change or deactivation, and when an administrator ends them.
+    session_idle_minutes: int = Field(120, ge=0, le=60 * 24 * 30)
+    # Scheduled backups (app/backup.py): off until a folder is set. Each one is restored into a
+    # scratch database to check it, and only the newest `backup_keep` are kept.
+    backup_dir: str = ""
+    backup_interval_hours: int = Field(24, ge=1, le=24 * 31)
+    backup_keep: int = Field(14, ge=1, le=1000)
+    # Malware scanning with ClamAV (app/malware.py): clamd's "host:port" or socket path. While
+    # set, files are refused when clamd can't scan them, unless clamav_required is turned off.
+    clamav_address: str = ""
+    clamav_required: bool = True
+    clamav_timeout_seconds: float = Field(30.0, gt=0, le=600)
+    # The highest classification whose text may be sent to the AI service (app/ai_policy.py).
+    # The default keeps restricted documents (identity numbers, named-people-only files) local.
+    ai_max_classification: Literal["public", "internal", "confidential", "restricted"] = "confidential"
+    # GET /metrics (Prometheus) needs this as a bearer token; without it there's no endpoint.
+    metrics_token: str = ""
 
     max_upload_mb: int = 20
     cors_origins: list[str] = ["http://localhost:5173"]

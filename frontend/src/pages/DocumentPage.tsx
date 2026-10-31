@@ -288,15 +288,23 @@ export default function DocumentPage() {
               <h3>Manage</h3>
               <label className="check">
                 <span className="switch">
-                  <input type="checkbox" checked={doc.ai_enabled} onChange={(e) => setAi(e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={doc.ai_enabled && doc.ai_allowed}
+                    disabled={doc.ai_enabled && !doc.ai_allowed}
+                    onChange={(e) => setAi(e.target.checked)}
+                    aria-describedby="ai-reading-note"
+                  />
                   <span />
                 </span>
                 Let the assistant read this document
               </label>
-              <p className="muted small">
-                {doc.ai_enabled
-                  ? "Passages can be sent to the AI to answer questions, only for people who can open it."
-                  : "The AI never sees this document. People who can open it still find it in search."}
+              <p className="muted small" id="ai-reading-note">
+                {doc.ai_enabled && !doc.ai_allowed
+                  ? `${doc.ai_blocked_reason} The assistant still finds it and quotes its passages without AI.`
+                  : doc.ai_enabled
+                    ? "Passages can be sent to the AI to answer questions, only for people who can open it."
+                    : "The AI never sees this document. People who can open it still find it in search."}
               </p>
               <div className="stack-sm">
                 {synced ? (

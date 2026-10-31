@@ -1489,6 +1489,80 @@ textarea {
   font-size: 0.78rem;
   color: var(--ink-3);
 }
+.scope-picker {
+  max-width: 780px;
+  margin-bottom: 8px;
+  font-size: 0.82rem;
+  color: var(--ink-3);
+}
+.scope-picker > summary {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 12px;
+  line-height: 1.45;
+  cursor: pointer;
+  list-style: none;
+}
+.scope-picker > summary svg {
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+.scope-picker > summary::-webkit-details-marker {
+  display: none;
+}
+.scope-picker > summary strong {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+.scope-picker > summary:hover,
+.scope-picker[open] > summary {
+  background: var(--surface);
+}
+.scope-picker > summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.scope-picker.active > summary {
+  color: var(--primary-text);
+  background: var(--primary-soft);
+}
+.scope-picker.active > summary strong {
+  color: var(--primary-text);
+}
+.scope-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 210px)) auto;
+  align-items: end;
+  gap: 10px 14px;
+  padding: 8px 10px 4px;
+}
+.scope-fields label {
+  display: grid;
+  gap: 4px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.scope-fields select {
+  min-width: 0;
+}
+.scope-fields .link-btn {
+  justify-self: start;
+  color: var(--primary-text);
+  font-weight: 600;
+  min-height: 40px;
+}
+@media (max-width: 560px) {
+  .scope-fields {
+    grid-template-columns: 1fr 1fr;
+    padding: 6px 4px 2px;
+  }
+  .scope-fields .link-btn {
+    grid-column: 1 / -1;
+    min-height: 28px;
+  }
+}
 
 .for-you {
   border-left: 1px solid var(--line);
@@ -1562,10 +1636,23 @@ textarea {
 /* ---------- library ---------- */
 
 .filters {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) 200px;
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+}
+.filters .search-box {
+  flex: 1 1 280px;
+}
+.filters select {
+  flex: 1 1 160px;
+  width: auto;
+  max-width: 230px;
+}
+@media (max-width: 640px) {
+  .filters select {
+    max-width: none;
+  }
 }
 .search-box {
   position: relative;
@@ -3349,6 +3436,123 @@ a.btn.primary {
   color: var(--ink-3);
   margin-top: -6px;
 }
+
+/* ---------- answers you can check: sources, their facts, disagreements ---------- */
+
+.answer-sources {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+.answer-sources .sources {
+  border-top: 0;
+  padding-top: 0;
+}
+.sources-label {
+  margin: 0;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.stale-tag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: color-mix(in srgb, #f59e0b 52%, var(--tint-ink));
+  background: color-mix(in srgb, #f59e0b 14%, var(--surface));
+}
+.why-sources > summary {
+  cursor: pointer;
+  width: fit-content;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--primary-text);
+  border-radius: 6px;
+}
+.why-sources > summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.why-sources > ol {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.facts-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+.facts-title .source-n {
+  flex: none;
+}
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 14px;
+  margin: 0 0 0 30px;
+  font-size: 0.82rem;
+}
+.facts dt {
+  color: var(--ink-3);
+}
+.facts dd {
+  margin: 0;
+  color: var(--ink-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.facts-stale {
+  color: color-mix(in srgb, #f59e0b 52%, var(--tint-ink)) !important;
+}
+.facts-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.conflict-note {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  color: var(--ink);
+  background: color-mix(in srgb, #f59e0b 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, #f59e0b 38%, var(--surface));
+}
+.conflict-note > svg {
+  margin-top: 2px;
+  color: color-mix(in srgb, #f59e0b 60%, var(--tint-ink));
+}
+.conflict-note p {
+  margin: 0 0 4px;
+}
+.conflict-note p:last-child {
+  margin-bottom: 0;
+}
+.conflict-title {
+  font-weight: 700;
+}
+@media (max-width: 560px) {
+  .facts {
+    grid-template-columns: 1fr;
+    margin-left: 0;
+  }
+  .facts dd {
+    margin-bottom: 4px;
+  }
+}
 .msg.compact .msg-assistant {
   padding: 12px 14px;
   gap: 10px;
@@ -3593,20 +3797,12 @@ a.btn.primary {
 
 /* ---------- library: where documents come from ---------- */
 
-.filters.with-source {
-  grid-template-columns: minmax(220px, 1fr) 200px 240px;
-}
 .source-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   font-weight: 600;
   color: var(--ink-2);
-}
-@media (max-width: 900px) {
-  .filters.with-source {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* ---------- document page: paragraphs, versions, ask panel ---------- */
@@ -4063,5 +4259,51 @@ button.dropzone {
   }
   .page.with-drawer .doc-aside {
     display: none;
+  }
+}
+
+/* ---------- your account: sessions and password ---------- */
+
+.account h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.session-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.session-row .pill {
+  margin-left: 4px;
+}
+.session-admin {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 0.86rem;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+@media (max-width: 560px) {
+  .session-row,
+  .session-admin {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

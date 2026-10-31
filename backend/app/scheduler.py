@@ -1,7 +1,8 @@
 """Background jobs, run in one thread inside the app process.
 
 Every tick: sync sources that are due, send email/Slack copies of new notifications, and
-(hourly) remind people whose temporary access is about to run out. VaultMind runs as a
+(hourly) remind people whose temporary access is about to run out and take a backup when one
+is due (VAULTMIND_BACKUP_DIR; see backup.py). VaultMind runs as a
 single process (see the deployment notes), so one in-process scheduler is enough.
 """
 
@@ -16,6 +17,12 @@ from sqlalchemy import select
 from .database import SessionLocal
 
 log = logging.getLogger(__name__)
+
+
+def run_backup() -> None:
+    from .backup import run_scheduled
+
+    run_scheduled()
 
 
 def remind_expiring_grants(now: datetime | None = None) -> int:
@@ -94,4 +101,5 @@ class Scheduler:
         if self._last_hourly is None or time.monotonic() - self._last_hourly > 3600:
             self._last_hourly = time.monotonic()
             job("expiry reminders", remind_expiring_grants)
+            job("backup", run_backup)
         job("deliveries", deliver_pending)

@@ -32,6 +32,11 @@ export default function Library() {
   const [q, setQ] = useState(params.get("q") ?? "");
   const [team, setTeam] = useState(params.get("team") ?? "");
   const [src, setSrc] = useState(params.get("source") ?? "");
+  const [owner, setOwner] = useState(params.get("owner") ?? "");
+  const [recent, setRecent] = useState(params.get("updated") ?? "");
+  // Everyone who has uploaded something seen so far, so the list doesn't shrink as you filter.
+  const owners = useRef(new Map<number, string>());
+  const latest = useRef(0); // only the newest search's results are shown, however the answers arrive
   const [cls, setCls] = useState<Classification | "">("");
   const [showLocked, setShowLocked] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -39,20 +44,28 @@ export default function Library() {
   const searchRef = useRef<HTMLInputElement>(null);
   usePageTitle("Library");
 
-  // Filters other than classification are applied by the server; classification is
-  // filtered here so the chips can show counts for every level at once.
+  // Team, owner and date are filtered by the server; classification and source are filtered
+  // here so the chips can show counts for every level and the source list stays complete.
   const load = useCallback(() => {
     const p = new URLSearchParams({ include_locked: String(showLocked) });
     if (q.trim()) p.set("q", q.trim());
     if (team) p.set("team_id", team);
+    if (owner) p.set("owner_id", owner);
+    if (recent) p.set("updated_within_days", recent);
     setFailed(false);
+    const n = ++latest.current;
     api<Doc[]>(`/api/documents?${p}`)
-      .then(setDocs)
+      .then((list) => {
+        if (n !== latest.current) return;
+        for (const d of list) if (d.uploaded_by_id && d.uploaded_by) owners.current.set(d.uploaded_by_id, d.uploaded_by);
+        setDocs(list);
+      })
       .catch(() => {
+        if (n !== latest.current) return;
         setDocs([]);
         setFailed(true);
       });
-  }, [q, team, showLocked]);
+  }, [q, team, owner, recent, showLocked]);
 
   useEffect(() => {
     const t = setTimeout(load, q ? 220 : 0);
@@ -64,8 +77,10 @@ export default function Library() {
     if (q.trim()) next.q = q.trim();
     if (team) next.team = team;
     if (src) next.source = src;
+    if (owner) next.owner = owner;
+    if (recent) next.updated = recent;
     setParams(next, { replace: true });
-  }, [q, team, src, setParams]);
+  }, [q, team, src, owner, recent, setParams]);
 
   // "/" focuses search, like most document tools
   useEffect(() => {
@@ -103,7 +118,7 @@ export default function Library() {
         </button>
       </header>
 
-      <div className={`filters ${sources.length > 0 || src ? "with-source" : ""}`}>
+      <div className="filters">
         <label className="search-box">
           <IconSearch />
           <input
@@ -121,6 +136,24 @@ export default function Library() {
           {meta?.teams.map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}
+            </option>
+          ))}
+        </select>
+        <select value={owner} onChange={(e) => setOwner(e.target.value)} aria-label="Filter by who added it">
+          <option value="">Anyone</option>
+          {[...owners.current.entries()]
+            .sort((a, b) => a[1].localeCompare(b[1]))
+            .map(([id, name]) => (
+              <option key={id} value={id}>
+                Added by {name}
+              </option>
+            ))}
+        </select>
+        <select value={recent} onChange={(e) => setRecent(e.target.value)} aria-label="Filter by when it was updated">
+          <option value="">Updated any time</option>
+          {[7, 30, 90, 365].map((d) => (
+            <option key={d} value={d}>
+              Updated in the last {d === 365 ? "year" : `${d} days`}
             </option>
           ))}
         </select>
@@ -176,7 +209,7 @@ export default function Library() {
 
       {!failed && visible && visible.length === 0 && (
         <Empty title={q ? `Nothing matches “${q}”` : "No documents here yet"} icon={<IconSearch />}>
-          {q || cls || team || src ? (
+          {q || cls || team || src || owner || recent ? (
             <>
               Try fewer words, or{" "}
               <button
@@ -186,6 +219,8 @@ export default function Library() {
                   setCls("");
                   setTeam("");
                   setSrc("");
+                  setOwner("");
+                  setRecent("");
                 }}
               >
                 <u>clear the filters</u>

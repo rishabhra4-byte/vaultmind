@@ -125,6 +125,30 @@ def stats(_: User = Depends(admin_user), db: Session = Depends(get_db)):
     }
 
 
+@router.get("/admin/operations")
+def operations(_: User = Depends(admin_user)):
+    """Backups and other operational checks, for the admin overview."""
+    from pathlib import Path
+
+    from .. import backup, malware
+
+    s = get_settings()
+    return {
+        "backups": {
+            "enabled": bool(s.backup_dir),
+            "interval_hours": s.backup_interval_hours,
+            "keep": s.backup_keep,
+            "recent": backup.status(Path(s.backup_dir)) if s.backup_dir else [],
+        },
+        "ai": {"max_classification": s.ai_max_classification},
+        "scanner": {
+            "enabled": bool(s.clamav_address),
+            "reachable": malware.ping() if s.clamav_address else False,
+            "required": s.clamav_required,
+        },
+    }
+
+
 def _normal_question(q: str) -> str:
     return " ".join(re.sub(r"[^\w\s'-]", " ", q.lower()).split())
 

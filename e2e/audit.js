@@ -343,6 +343,45 @@ async function signOut(page) {
       await p.waitForSelector('.msg-user:has-text("hotel limit")');
       await p.waitForSelector('.msg-assistant:has-text("7,000")', { timeout: 10000 });
     });
+    await check('assistant: documents that disagree are flagged, the newer one first', async () => {
+      const note = p.locator('.msg-assistant').last().locator('.conflict-note');
+      await note.waitFor({ timeout: 5000 });
+      const t = await note.textContent();
+      return (t.indexOf('Expense Reimbursement Policy') < t.indexOf('Travel Policy 2024') && t.includes('6,000')) || t;
+    });
+    await check('assistant: an out-of-date source is tagged; "Why these sources" gives owner, date and access', async () => {
+      const last = p.locator('.msg-assistant').last();
+      const tagged = await last.locator('.source:has(.stale-tag)').first().textContent();
+      await last.locator('.why-sources > summary').click();
+      const facts = await last.locator('.why-sources').textContent();
+      const ok = tagged.includes('Travel Policy 2024') && facts.includes('Owner') && facts.includes('Updated') && facts.includes('Your access');
+      return ok || `${tagged} / ${facts.slice(0, 200)}`;
+    });
+    await check('assistant: when no document answers it, the reply says so and lists only "closest matches"', async () => {
+      await p.fill('.composer textarea', 'What is the dental insurance cover for parents?');
+      await p.press('.composer textarea', 'Enter');
+      const reply = p.locator('.msg-assistant:has-text("enough evidence")');
+      await reply.locator('.msg-tools').waitFor({ timeout: 10000 });
+      const t = await reply.textContent();
+      const labels = await reply.locator('.sources-label').allTextContents();
+      return (t.includes('“dental”') && labels.every((l) => l.startsWith('Closest matches'))) || t.slice(0, 240);
+    });
+    await check('assistant: "Answer from" narrows answers to one team, and the reply says so', async () => {
+      await p.click('.scope-picker > summary');
+      await p.selectOption('.scope-fields select >> nth=0', { label: 'Engineering' });
+      const summary = await p.textContent('.scope-picker > summary');
+      await p.fill('.composer textarea', 'What is the hotel limit per night in metro cities?');
+      await p.press('.composer textarea', 'Enter');
+      const reply = p.locator('.msg-assistant:has-text("among Engineering documents")');
+      await reply.locator('.msg-tools').waitFor({ timeout: 10000 });
+      const note = await reply.locator('.search-note').textContent();
+      const folded = !(await p.isVisible('.scope-fields')); // folds away once the question is sent
+      await p.click('.scope-picker > summary');
+      await p.click('.scope-fields button:has-text("Clear")');
+      const cleared = await p.textContent('.scope-picker > summary');
+      const ok = summary.includes('Engineering documents') && note.includes('Only searched Engineering documents') && folded && cleared.includes('all documents you can open');
+      return ok || `${summary} / ${note} / ${folded} / ${cleared}`;
+    });
     await check('assistant: a link with ?ask= does not send a question on the person\'s behalf', async () => {
       await p.goto(BASE + '/?ask=' + encodeURIComponent('Planted question from a link'));
       await p.waitForSelector('.chat');
@@ -448,6 +487,30 @@ async function signOut(page) {
       await p.click('.chip:has-text("Confidential")');
       const n = (await p.$$('.doc-row')).length;
       return (tags.length === 1 && tags[0] === 'Confidential' && n === total) || `${tags} / ${n}`;
+    });
+    await check('library: filter by when a document was last updated', async () => {
+      const when = 'select[aria-label="Filter by when it was updated"]';
+      await p.selectOption(when, '90');
+      await p.waitForFunction((t) => document.querySelectorAll('.doc-row').length < t, total);
+      const titles = await p.$$eval('.doc-title', (els) => els.map((e) => e.textContent));
+      await p.selectOption(when, '');
+      await p.waitForFunction((t) => document.querySelectorAll('.doc-row').length === t, total);
+      return (titles.length > 0 && !titles.some((t) => t.includes('Travel Policy 2024'))) || titles.join(', ');
+    });
+    await check('library: filter by who added a document', async () => {
+      const who = 'select[aria-label="Filter by who added it"]';
+      await p.selectOption(who, { label: 'Added by Ananya Gupta' });
+      await p.waitForFunction((t) => document.querySelectorAll('.doc-row').length < t, total);
+      const titles = await p.$$eval('.doc-title', (els) => els.map((e) => e.textContent));
+      await p.selectOption(who, '');
+      await p.waitForFunction((t) => document.querySelectorAll('.doc-row').length === t, total);
+      return (titles.some((t) => t.includes('Expense Reimbursement Policy')) && !titles.some((t) => t.includes('Code of Conduct'))) || titles.join(', ');
+    });
+    await check('library: a misspelt search still finds the document', async () => {
+      await p.fill('.search-box input', 'reimbursment');
+      await p.waitForSelector('.doc-row:first-child .doc-title:has-text("Expense Reimbursement Policy")');
+      await p.fill('.search-box input', '');
+      await p.waitForFunction((t) => document.querySelectorAll('.doc-row').length === t, total);
     });
     await check('library: team filter', async () => {
       await p.selectOption('select[aria-label="Filter by team"]', { label: 'Finance' });
@@ -705,8 +768,13 @@ async function signOut(page) {
     });
     await check('admin: activity filter shows only refused opens', async () => {
       await p.click('.admin-tabs >> text=Activity');
-      await p.selectOption('select[aria-label="Filter activity"]', 'document.view_denied');
+      // Wait for the filtered list itself: the unfiltered one can also start with a refusal.
+      await Promise.all([
+        p.waitForResponse((r) => r.url().includes('/api/admin/audit') && r.url().includes('action=document.view_denied')),
+        p.selectOption('select[aria-label="Filter activity"]', 'document.view_denied'),
+      ]);
       await p.waitForSelector('.audit li.denied');
+      await p.waitForTimeout(100);
       const all = await p.$$eval('.audit li', (els) => els.every((e) => e.classList.contains('denied')));
       return all;
     });
@@ -802,6 +870,61 @@ async function signOut(page) {
       await p.waitForSelector('.list-card:has-text("Spend policy")');
     });
     await p.context().close();
+  });
+
+  // ---------------------------------------------------------------- sessions
+  await block('sessions', async () => {
+    const laptop = await newPage(browser, 'sessions-laptop');
+    const phone = await newPage(browser, 'sessions-phone', { viewport: { width: 390, height: 844 } });
+    await signIn(laptop, 'Karan Singh');
+    await signIn(phone, 'Karan Singh');
+    await check('account: lists where you are signed in, with this browser marked', async () => {
+      await laptop.click('button[aria-label="Your account and sessions"]');
+      await laptop.waitForSelector('dialog[open] .session-row');
+      const rows = await laptop.$$eval('dialog[open] .session-row', (els) => els.map((e) => e.textContent));
+      return (rows.length >= 2 && rows.filter((r) => r.includes('This browser')).length === 1) || rows.join(' | ');
+    });
+    await check('account: a wrong current password or mismatched new ones are refused', async () => {
+      await laptop.fill('dialog[open] label:has-text("Current password") input', 'not-my-password');
+      await laptop.fill('dialog[open] label:has-text("New password") >> nth=0 >> input', 'a-long-enough-new-pass');
+      await laptop.fill('dialog[open] label:has-text("New password again") input', 'something-else-entirely');
+      await laptop.click('dialog[open] button:has-text("Change password")');
+      await laptop.waitForSelector('dialog[open] .error:has-text("don\'t match")');
+      await laptop.fill('dialog[open] label:has-text("New password again") input', 'a-long-enough-new-pass');
+      await laptop.click('dialog[open] button:has-text("Change password")');
+      await laptop.waitForSelector('dialog[open] .error:has-text("current password")');
+    });
+    await check('account: signing out other sessions ends them there, and says why at sign-in', async () => {
+      await laptop.click('dialog[open] button:has-text("Sign out of all other sessions")');
+      await toast(laptop, 'other session');
+      await laptop.keyboard.press('Escape');
+      await phone.reload();
+      await phone.waitForSelector('.fallback-note[role=status]:has-text("signed out from another browser")');
+      return (await laptop.isVisible('.sidebar')) || 'this browser was signed out too';
+    });
+    await check('admin: "Sign out everywhere" ends someone\'s sessions', async () => {
+      const admin = await newPage(browser, 'sessions-admin');
+      await signIn(admin, 'Dev Patel');
+      await admin.goto(BASE + '/admin/people');
+      await admin.click('button[aria-label="Edit Karan Singh"]');
+      const before = await admin.textContent('dialog[open] .session-admin');
+      await admin.click('dialog[open] button:has-text("Sign out everywhere")');
+      await toast(admin, 'Signed Karan Singh out');
+      await admin.context().close();
+      await laptop.reload();
+      await laptop.waitForSelector('.fallback-note[role=status]:has-text("An administrator signed you out")');
+      return before.includes('Signed in on 1 browser') || before;
+    });
+    await check('sign-out ends the session on the server, not just in this browser', async () => {
+      await signIn(phone, 'Karan Singh');
+      const token = await phone.evaluate(() => localStorage.getItem('vaultmind.token'));
+      await phone.click('button[aria-label="Sign out"]');
+      await phone.waitForSelector('.sidebar', { state: 'detached' });
+      const status = await phone.evaluate(async (t) => (await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${t}` } })).status, token);
+      return status === 401 || `the old token still works (${status})`;
+    });
+    await laptop.context().close();
+    await phone.context().close();
   });
 
   // ---------------------------------------------------------------- failure handling
