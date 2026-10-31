@@ -84,3 +84,26 @@ def test_search_rewrites_send_only_the_question(client, login, fake_llm):
     rewrite = next((c for c in fake_llm.calls if "keyword search" in c["system"]), None)
     if rewrite is not None:  # only when the first search found too little
         assert "<document" not in rewrite["messages"][0]["content"] and "[D" not in rewrite["messages"][0]["content"]
+
+
+def test_earlier_answers_from_documents_the_ai_may_not_read_are_left_out_of_follow_ups(client, login, fake_llm):
+    from app import llm
+
+    rohan = login("rohan")
+    _upload(client, rohan, "restricted")
+    llm.set_llm(None)  # the first answer is offline, so it quotes the restricted record itself
+    first = client.post(
+        "/api/assistant/chat", headers=rohan, json={"message": "contractor onboarding record Pune building access"}
+    ).json()
+    assert "Pune office" in first["reply"]["content"]
+    llm.set_llm(fake_llm)
+    fake_llm.calls.clear()
+    client.post(
+        "/api/assistant/chat",
+        headers=rohan,
+        json={"message": "And how many days of earned leave do I get?", "conversation_id": first["conversation"]["id"]},
+    )
+    sent = _sent(fake_llm)
+    assert "earned leave" in sent  # the follow-up went to the AI...
+    assert "Pune office" not in sent and "2345 6789 0123" not in sent  # ...without the earlier answer
+    assert "is left out" in sent

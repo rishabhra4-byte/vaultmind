@@ -334,12 +334,34 @@ Rules:
     return prompt + (f"\n\n{extra}" if extra else "")
 
 
-def _ask_model(llm: LLM, user: User, ctx: Context, question: str, history: list[Message], extra: str = "", locked=None) -> str:
-    messages = [{"role": m.role, "content": m.content} for m in history[-6:] if m.role in ("user", "assistant")]
+HISTORY_LEFT_OUT = "(An earlier answer, drawn from documents the AI may not read, is left out.)"
+
+
+def _history_for_model(view: AccessView, history: list[Message]) -> list[dict]:
+    """The last few turns, as the AI data policy allows (ai_policy.py). An earlier answer that
+    cites a document the AI may not read, or that the person can no longer open, is left out:
+    an offline answer quotes such documents. Identity numbers and secrets are masked."""
+    messages = []
+    for m in history[-6:]:
+        if m.role not in ("user", "assistant"):
+            continue
+        content = m.content
+        if m.role == "assistant":
+            cited = {c.get("id") for c in (m.meta or {}).get("citations", []) if isinstance(c, dict)}
+            if any(i not in view.allowed or not ai_policy.may_read(view.docs[i]) for i in cited if isinstance(i, int)):
+                content = HISTORY_LEFT_OUT
+        messages.append({"role": m.role, "content": redact_for_ai(content)})
     while messages and messages[0]["role"] != "user":
         messages.pop(0)  # the API expects the conversation to open with a user turn
-    messages.append({"role": "user", "content": f"{ctx.block(locked)}\n\nQuestion: {question}"})
-    return llm.complete(_system_prompt(user, extra), messages, max_tokens=get_settings().llm_max_tokens)
+    return messages
+
+
+def _ask_model(
+    llm: LLM, view: AccessView, ctx: Context, question: str, history: list[Message], extra: str = "", locked=None
+) -> str:
+    messages = _history_for_model(view, history)
+    messages.append({"role": "user", "content": f"{ctx.block(locked)}\n\nQuestion: {redact_for_ai(question)}"})
+    return llm.complete(_system_prompt(view.user, extra), messages, max_tokens=get_settings().llm_max_tokens)
 
 
 def _model_failed(exc: Exception) -> str:
@@ -598,7 +620,7 @@ def _answer_question(
             else "The search found only partial matches. Answer only if a passage states the answer directly; otherwise say you couldn't find enough evidence in their documents."
         )
         try:
-            content = _ask_model(llm, view.user, ctx, question, history, extra, locked=locked)
+            content = _ask_model(llm, view, ctx, question, history, extra, locked=locked)
             content, cited = ctx.clean(content)
             by_id = {h.doc_id: h for h in hits}
             citations = []
@@ -720,7 +742,7 @@ def _answer_about_document(
             "ask": f"{name} is reading “{doc.title}” and asking about it. Answer from it; if it doesn't cover the question, say so.",
         }[intent]
         try:
-            content = _ask_model(llm, user, ctx, question, history, extra)
+            content = _ask_model(llm, view, ctx, question, history, extra)
             content, cited = ctx.clean(content)
             return Reply(content, "ai", [_doc_card(doc, passages=cited.get(doc.id))], intent=intent, hits=1)
         except Exception as exc:
@@ -822,7 +844,7 @@ def _answer_changes(
                 "mean for this person, citing the document like [D12]."
             )
             try:
-                content, cited = ctx.clean(_ask_model(llm, view.user, ctx, question, history, extra))
+                content, cited = ctx.clean(_ask_model(llm, view, ctx, question, history, extra))
                 return Reply(content, "ai", [_doc_card(doc)], intent="changes", changes=changes, hits=1)
             except Exception as exc:
                 fallback = _model_failed(exc)
@@ -925,7 +947,7 @@ def _answer_compare(
             "and where they differ (figures, rules, dates, who it applies to). Use short bullets under headings, citing passages."
         )
         try:
-            content, cited = ctx.clean(_ask_model(llm, view.user, ctx, question, history, extra))
+            content, cited = ctx.clean(_ask_model(llm, view, ctx, question, history, extra))
             return Reply(
                 content,
                 "ai",
@@ -990,7 +1012,7 @@ def _answer_draft(
             "Reply exactly in this form: a first line 'Subject: …', a blank line, then the message body. No citations."
         )
         try:
-            text = _ask_model(llm, view.user, ctx, question, history, extra)
+            text = _ask_model(llm, view, ctx, question, history, extra)
             text = CITATION.sub("", text).strip()
             match = re.match(r"(?is)^\s*subject:\s*(.+?)\n\s*\n(.*)$", text)
             subject, body = (

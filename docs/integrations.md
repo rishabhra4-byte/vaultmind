@@ -15,6 +15,20 @@ are built from it.
 - [Slack](#slack)
 - [How files and people are kept in sync](#how-syncing-works)
 
+| Integration | What it does | Turned on by | Sharing followed | Verified against |
+|---|---|---|---|---|
+| Shared folders | Syncs files from mounted folders | `VAULTMIND_FOLDER_ROOTS`, then **Admin → Sources** | Folder rules (team and classification per folder) | Real folders (tests and the demo drive) |
+| Google Drive | Syncs files, Google Docs exported as text | Service account with domain-wide delegation | Each file's people, groups, domain and links | A stand-in Drive v3 API |
+| Google Workspace directory | People, teams (departments) and groups | Same service account, *sync people* on the source | | A stand-in Admin SDK |
+| Microsoft 365 (SharePoint, OneDrive) | Syncs files | Entra ID app with Graph application permissions | Each file's people, groups and links | A stand-in Microsoft Graph |
+| Entra ID directory | People, teams and groups | Same app, *sync people* on the source | | A stand-in Microsoft Graph |
+| Sign in with Google / Microsoft | OpenID Connect with PKCE | Client id and secret | | A stand-in OpenID provider issuing real signed tokens |
+| Email | Copies of notifications | SMTP settings | | A stand-in SMTP class |
+| Slack | Questions in Slack, notifications | Bot token and signing secret | Answers with the asker's own permissions | Requests signed exactly as Slack signs them |
+| Anthropic | Writes answers ([AI data policy](ai-data-policy.md)) | API key | Only passages the asker may open | A recording stand-in; one opt-in live test |
+| ClamAV | Malware scanning of every file ([operations](operations.md#malware-scanning)) | `VAULTMIND_CLAMAV_ADDRESS` | | A stand-in `clamd` speaking its protocol |
+| Prometheus | Metrics and alerts ([operations](operations.md#monitoring)) | `VAULTMIND_METRICS_TOKEN` | | Tests of the endpoint; `promtool` in CI |
+
 > **What has been verified.** Every connector, sign-in flow and delivery channel is covered by
 > automated tests against local stand-ins that follow each service's real API: paging,
 > redirects, throttling, token checks, and wrong or tampered tokens. None of them has been run

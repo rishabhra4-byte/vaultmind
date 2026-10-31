@@ -158,3 +158,29 @@ def test_bad_filters_are_rejected(client, login):
         json={"message": "hotel limit", "filters": {"source": "drop table"}},
     )
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------- corrections never come from locked documents
+
+
+def test_spelling_corrections_and_acronyms_only_come_from_documents_you_can_open(client, login):
+    import io
+
+    rohan = login("rohan")  # Engineering manager: uploads a confidential Engineering note
+    text = b"Project Quillfeather: the Zephyrine migration. The OKR (objectives and key results) review is on Friday."
+    files = {"file": ("quill.txt", io.BytesIO(text), "text/plain")}
+    form = {"classification": "confidential", "title": "Engineering leadership note", "discoverable": "false"}
+    assert client.post("/api/documents", headers=rohan, files=files, data=form).status_code == 201
+
+    def search_notes(headers, question):
+        r = client.post("/api/assistant/chat", headers=headers, json={"message": question})
+        return r.json()["reply"]["meta"].get("search", {})
+
+    # Rohan can open it: his misspelling is corrected from it, and its acronym is understood.
+    assert {"from": "zepyrine", "to": "zephyrine"} in search_notes(rohan, "When is the zepyrine migration?")["corrected"]
+    assert any(a["acronym"] == "OKR" for a in search_notes(rohan, "When is the OKR review?").get("acronyms", []))
+    # Priya (Senior, below the confidential threshold) can't: nothing from it shows up, not even a spelling.
+    priya = login("priya")
+    notes = search_notes(priya, "When is the zepyrine migration?")
+    assert "zephyrine" not in str(notes)
+    assert not any(a["acronym"] == "OKR" for a in search_notes(priya, "When is the OKR review?").get("acronyms", []))

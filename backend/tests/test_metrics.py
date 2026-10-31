@@ -110,3 +110,15 @@ def test_alert_rules_only_use_metrics_vaultmind_exports(client, monkeypatch):
         for rule in group["rules"]:
             assert rule["labels"]["severity"] in ("critical", "warning")
             assert rule["annotations"]["runbook"].startswith("docs/operations.md#")
+
+
+def test_every_alert_links_to_a_runbook_section_that_exists():
+    root = Path(__file__).resolve().parents[2]
+    rules = yaml.safe_load((root / "deploy" / "prometheus-alerts.yml").read_text())
+    headings = re.findall(r"^#{2,4} (.+)$", (root / "docs" / "operations.md").read_text(), re.M)
+    # GitHub's anchors: lower case, punctuation dropped, spaces to hyphens.
+    anchors = {re.sub(r"[^\w\- ]", "", h.strip().lower()).replace(" ", "-") for h in headings}
+    for group in rules["groups"]:
+        for rule in group["rules"]:
+            anchor = rule["annotations"]["runbook"].split("#", 1)[1]
+            assert anchor in anchors, f"{rule['alert']}: no section #{anchor} in docs/operations.md"
