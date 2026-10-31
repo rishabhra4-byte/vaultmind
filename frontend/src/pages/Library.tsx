@@ -36,6 +36,7 @@ export default function Library() {
   const [recent, setRecent] = useState(params.get("updated") ?? "");
   // Everyone who has uploaded something seen so far, so the list doesn't shrink as you filter.
   const owners = useRef(new Map<number, string>());
+  const latest = useRef(0); // only the newest search's results are shown, however the answers arrive
   const [cls, setCls] = useState<Classification | "">("");
   const [showLocked, setShowLocked] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -52,12 +53,15 @@ export default function Library() {
     if (owner) p.set("owner_id", owner);
     if (recent) p.set("updated_within_days", recent);
     setFailed(false);
+    const n = ++latest.current;
     api<Doc[]>(`/api/documents?${p}`)
       .then((list) => {
+        if (n !== latest.current) return;
         for (const d of list) if (d.uploaded_by_id && d.uploaded_by) owners.current.set(d.uploaded_by_id, d.uploaded_by);
         setDocs(list);
       })
       .catch(() => {
+        if (n !== latest.current) return;
         setDocs([]);
         setFailed(true);
       });

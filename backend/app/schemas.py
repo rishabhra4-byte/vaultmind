@@ -126,6 +126,9 @@ class DocumentOut(BaseModel):
     updated_at: UTCDatetime
     version: int = 1
     ai_enabled: bool = True
+    # Whether the AI service may read it after all (company AI policy), and if not, why.
+    ai_allowed: bool = True
+    ai_blocked_reason: str | None = None
     acl_mode: str = "native"
     source: SourceRef | None = None
     source_path: str = ""

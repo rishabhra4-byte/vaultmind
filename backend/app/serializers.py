@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING
 
+from . import ai_policy
 from .models import AccessGrant, AccessRequest, AuditEvent, Document, Position, User
 from .policy import can_manage, can_view
 from .schemas import AccessInfo, AccessRequestOut, AuditOut, DocumentOut, GrantOut, SourceRef, UserOut
@@ -37,6 +38,8 @@ def document_out(doc: Document, viewer: "Viewer", pending: set[int] = frozenset(
         updated_at=doc.updated_at,
         version=doc.version or 1,
         ai_enabled=doc.ai_enabled,
+        ai_allowed=ai_policy.may_read(doc),
+        ai_blocked_reason=ai_policy.blocked_reason(doc),
         acl_mode=doc.acl_mode,
         source=SourceRef(id=source.id, kind=source.kind, label=source.label, name=source.name) if source else None,
         # Where the file lives is only shown to people who can open it.

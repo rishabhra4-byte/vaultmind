@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 
 from .llm import get_llm
-from .sensitivity import redact
+from .sensitivity import redact, redact_for_ai
 from .text import sentences
 
 log = logging.getLogger(__name__)
@@ -105,18 +105,20 @@ def describe(diff: TextDiff) -> str:
     return text[0].upper() + text[1:]
 
 
-def summarise_change(title: str, old: str, new: str) -> str:
-    """One or two sentences on what changed: by the AI when available, otherwise from the diff."""
+def summarise_change(title: str, old: str, new: str, *, use_ai: bool = True) -> str:
+    """One or two sentences on what changed: by the AI when available and the AI data policy
+    allows it for this document (`use_ai`), otherwise from the diff."""
     diff = diff_text(old, new)
     if diff.empty:
         return "No changes to the text."
     fallback = redact(describe(diff))
-    llm = get_llm()
+    llm = get_llm() if use_ai else None
     if llm is None:
         return fallback
     d = diff.as_dict()
     lines = [f"- changed: “{c['before']}” → “{c['after']}”" for c in d["changed"]]
     lines += [f"- added: “{s}”" for s in d["added"]] + [f"- removed: “{s}”" for s in d["removed"]]
+    lines = [redact_for_ai(line) for line in lines]
     try:
         text = llm.complete(
             system="You summarise edits to internal company documents in one or two plain sentences for employees. "

@@ -4,7 +4,7 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import audit, malware, retrieval, storage
+from .. import audit, malware, metrics, retrieval, storage
 from ..config import get_settings
 from ..database import get_db
 from ..deps import current_user
@@ -287,6 +287,7 @@ async def _read_upload(file: UploadFile, user: User, db: Session) -> bytes:
     try:
         verdict = await run_in_threadpool(malware.scan, data)
     except malware.ScanUnavailable:
+        metrics.inc("vaultmind_scan_failures_total", source="upload")
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "Uploads are paused because the virus scanner can't be reached. Try again in a few minutes, or tell IT.",

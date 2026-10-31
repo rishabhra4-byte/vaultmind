@@ -129,9 +129,10 @@ def test_identity_numbers_and_secrets_are_masked_before_the_model_sees_them(clie
         "Contact ravi@vendor.example for building access. Deploy key sk-abcdefghijklmnopqrstuv1234."
     )
     files = {"file": ("contractor.txt", io.BytesIO(text.encode()), "text/plain")}
-    up = client.post(
-        "/api/documents", headers=rohan, files=files, data={"classification": "restricted", "title": "Contractor record"}
-    )
+    # Confidential (with the scanner's warning acknowledged): restricted documents never reach
+    # the AI service at all by default (see test_ai_policy.py).
+    form = {"classification": "confidential", "title": "Contractor record", "acknowledge_sensitivity": "true"}
+    up = client.post("/api/documents", headers=rohan, files=files, data=form)
     assert up.status_code == 201, up.text
     _ask(client, rohan, "contractor onboarding record building access")
     prompt = fake_llm.last_prompt

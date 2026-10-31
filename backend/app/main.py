@@ -1,15 +1,18 @@
+import hmac
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from . import metrics
 from .config import get_settings
 from .database import SessionLocal, engine
 from .migrations import upgrade_database
@@ -19,7 +22,9 @@ from .seed import seed
 from .services import rebuild_index
 from .sync import reset_stuck_syncs
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s [%(request_id)s]: %(message)s")
+for _handler in logging.getLogger().handlers:
+    _handler.addFilter(metrics.RequestIdFilter())  # every line logged during a request names it
 log = logging.getLogger("vaultmind")
 
 settings = get_settings()
@@ -123,6 +128,31 @@ app.add_middleware(BodySizeLimit, max_bytes=(settings.max_upload_mb + 1) * 1024 
 
 
 @app.middleware("http")
+async def request_id_and_metrics(request: Request, call_next):
+    """Give every request an id (in the response and the log) and count it for /metrics."""
+    rid = metrics.new_request_id(request.headers.get("x-request-id"))
+    token = metrics.request_id.set(rid)
+    started = time.perf_counter()
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        response.headers["X-Request-ID"] = rid
+        return response
+    finally:
+        route = request.scope.get("route")
+        path = getattr(route, "path", None)
+        if path is None or path in ("/{path:path}", "/api/{path:path}"):
+            path = "other" if request.url.path.startswith("/api/") else "web"
+        if path not in ("/metrics", "/api/health", "/api/ready"):
+            metrics.registry.inc(
+                "vaultmind_http_requests_total", {"method": request.method, "route": path, "status": f"{status // 100}xx"}
+            )
+            metrics.registry.observe("vaultmind_http_request_duration_seconds", time.perf_counter() - started, {"route": path})
+        metrics.request_id.reset(token)
+
+
+@app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
     h = response.headers
@@ -177,6 +207,18 @@ def ready():
         log.exception("Readiness check failed")
         return JSONResponse({"status": "unavailable", "database": "down"}, status_code=503)
     return {"status": "ok", "database": "ok"}
+
+
+@app.get("/metrics", include_in_schema=False)
+def prometheus_metrics(request: Request):
+    """Prometheus metrics, for scrapers holding VAULTMIND_METRICS_TOKEN (see app/metrics.py)."""
+    expected = settings.metrics_token
+    if not expected:
+        raise HTTPException(404, "Not found")
+    sent = request.headers.get("authorization", "")
+    if not hmac.compare_digest(sent.encode(), f"Bearer {expected}".encode()):
+        raise HTTPException(401, "A metrics token is required", headers={"WWW-Authenticate": "Bearer"})
+    return PlainTextResponse(metrics.render(), media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PATCH", "PUT", "DELETE"], include_in_schema=False)

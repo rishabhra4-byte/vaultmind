@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import audit, sessions, sso
+from .. import audit, metrics, sessions, sso
 from ..config import get_settings
 from ..database import get_db
 from ..deps import current_auth, current_user, login_limiter_account, login_limiter_ip
@@ -32,6 +32,7 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     if user is None or not password_ok:
         login_limiter_ip.record(ip)
         login_limiter_account.record(email)
+        metrics.inc("vaultmind_sign_ins_total", method="password", result="failed")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email or password")
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This account is disabled")
@@ -105,6 +106,7 @@ def sso_callback(
         user = sso.sign_in(db, p.id, ident)
     except sso.SSOError as exc:
         db.rollback()
+        metrics.inc("vaultmind_sign_ins_total", method=p.id, result="failed")
         log.info("Sign-in with %s refused: %s", provider, exc)
         resp = RedirectResponse(f"/signin?sso_error={exc.code}", status_code=303)
         resp.delete_cookie(SSO_COOKIE, path="/api/auth/sso")

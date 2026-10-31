@@ -1,0 +1,104 @@
+# Prometheus alert rules for VaultMind. Load them with `rule_files:` in prometheus.yml, and
+# scrape VaultMind like this (the token is VAULTMIND_METRICS_TOKEN):
+#
+#   scrape_configs:
+#     - job_name: vaultmind
+#       metrics_path: /metrics
+#       authorization: { credentials_file: /etc/prometheus/vaultmind-token }
+#       static_configs: [{ targets: ["vaultmind.internal:8000"] }]
+#
+# Thresholds are starting points for a company of a few hundred people; tune them after a
+# few weeks of real traffic. docs/operations.md says what to do when each one fires.
+
+groups:
+  - name: vaultmind
+    rules:
+      - alert: VaultMindDown
+        expr: up{job="vaultmind"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: VaultMind isn't answering scrapes
+          runbook: docs/operations.md#vaultmind-is-down
+
+      - alert: VaultMindDatabaseDown
+        expr: vaultmind_database_up == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: VaultMind can't reach its database
+          runbook: docs/operations.md#the-database-is-down
+
+      - alert: VaultMindServerErrors
+        expr: |
+          sum(rate(vaultmind_http_requests_total{status="5xx"}[5m]))
+            / clamp_min(sum(rate(vaultmind_http_requests_total[5m])), 0.001) > 0.02
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: More than 2% of requests are failing with server errors
+          runbook: docs/operations.md#server-errors
+
+      - alert: VaultMindSlowAnswers
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(vaultmind_http_request_duration_seconds_bucket{route="/api/assistant/chat"}[10m]))) > 10
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: The slowest 5% of assistant answers take over 10 seconds
+          runbook: docs/operations.md#slow-answers
+
+      - alert: VaultMindAIFallingBack
+        expr: sum(increase(vaultmind_ai_fallbacks_total[15m])) > 5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: The AI service keeps failing; answers are falling back to offline mode
+          runbook: docs/operations.md#ai-answers-falling-back
+
+      - alert: VaultMindBackupMissing
+        expr: vaultmind_backup_configured == 1 and (time() - vaultmind_backup_last_success_timestamp_seconds > 36 * 3600 or absent(vaultmind_backup_last_success_timestamp_seconds))
+        for: 30m
+        labels: { severity: critical }
+        annotations:
+          summary: No verified backup in the last 36 hours
+          runbook: docs/operations.md#backups
+
+      - alert: VaultMindBackupCheckFailed
+        expr: vaultmind_backup_last_verified == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: The newest backup failed its restore check
+          runbook: docs/operations.md#backups
+
+      - alert: VaultMindScannerDown
+        expr: vaultmind_scanner_configured == 1 and vaultmind_scanner_up == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: ClamAV isn't answering, so uploads and syncs are paused
+          runbook: docs/operations.md#the-malware-scanner-is-down
+
+      - alert: VaultMindMalwareBlocked
+        expr: sum(increase(vaultmind_files_blocked_total[1h])) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: The malware scanner refused a file in the last hour
+          runbook: docs/operations.md#malware-was-blocked
+
+      - alert: VaultMindSignInFailures
+        expr: sum(increase(vaultmind_sign_ins_total{result="failed"}[10m])) > 50
+        labels: { severity: warning }
+        annotations:
+          summary: Many failed sign-ins (possible password guessing)
+          runbook: docs/operations.md#many-failed-sign-ins
+
+      - alert: VaultMindSourceFailing
+        expr: vaultmind_sources_failing > 0
+        for: 1h
+        labels: { severity: warning }
+        annotations:
+          summary: A connected drive or folder has failed to sync for an hour
+          runbook: docs/operations.md#a-source-stops-syncing

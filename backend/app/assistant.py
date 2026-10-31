@@ -32,7 +32,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import actions, facts, glossary, retrieval
+from . import actions, ai_policy, facts, glossary, retrieval
 from .config import get_settings
 from .filters import DocFilter
 from .llm import LLM, REASONS, LLMError, get_llm
@@ -572,8 +572,8 @@ def _answer_question(
             outdated=outdated.get(doc.id),
         )
 
-    ai_hits = [h for h in hits if view.docs[h.doc_id].ai_enabled]
-    blocked = [h for h in hits if not view.docs[h.doc_id].ai_enabled]
+    ai_hits = [h for h in hits if ai_policy.may_read(view.docs[h.doc_id])]
+    blocked = [h for h in hits if not ai_policy.may_read(view.docs[h.doc_id])]
     blocked_cards = [card(h) for h in blocked]
     evidence = {"enough": ranking.enough, "coverage": ranking.coverage}
     if not ranking.enough and (missing := _missing(ranking)):
@@ -585,7 +585,7 @@ def _answer_question(
         for hit in ai_hits:
             ctx.add_passages(view.docs[hit.doc_id], [(c.ordinal, c.text) for c in hit.chunks], outdated.get(hit.doc_id))
         for doc in extra_docs:
-            if doc.ai_enabled:
+            if ai_policy.may_read(doc):
                 ctx.add_summary(doc)
         ctx.conflicts = [
             f"- {c['a']['title']} [D{c['a']['id']}] (newer) says {' and '.join(c['a']['says'])}; "
@@ -637,7 +637,7 @@ def _answer_question(
     citations = [card(h) for h in shown]
     notice = None
     if llm is not None and fallback is None and blocked:
-        notice = "AI reading is turned off for the matching documents, so this answer was built from their passages."
+        notice = "The matching documents are kept away from the AI, so this answer was built from their passages."
     return Reply(
         content,
         "offline",
@@ -706,7 +706,7 @@ def _answer_about_document(
         chosen = sorted(((c.ordinal, c.text) for c in hits[0].chunks), key=lambda p: p[0]) if hits else []
 
     fallback, notice = None, None
-    if llm is not None and doc.ai_enabled:
+    if llm is not None and ai_policy.may_read(doc):
         ctx = Context()
         ctx.add_passages(doc, chosen or _leading(doc, DOC_BUDGET // 2))
         name = user.full_name.split()[0]
@@ -726,7 +726,8 @@ def _answer_about_document(
         except Exception as exc:
             fallback = _model_failed(exc)
     elif llm is not None:
-        notice = "AI reading is turned off for this document, so this answer was built from its passages."
+        why = "AI reading is turned off for this document" if not doc.ai_enabled else ai_policy.blocked_reason(doc).rstrip(".")
+        notice = f"{why}, so this answer was built from its passages."
 
     cite = f"**{doc.title}** [D{doc.id}]"
     used: list[int] = []
@@ -805,7 +806,7 @@ def _answer_changes(
         diff = diff_text(previous.text, latest.text)
         changes = [{"id": doc.id, "title": doc.title, "version": latest.version, "from_version": previous.version}]
         fallback = None
-        if llm is not None and doc.ai_enabled:
+        if llm is not None and ai_policy.may_read(doc):
             ctx = Context()
             d = diff.as_dict()
             lines = [f"- changed: “{c['before']}” → “{c['after']}”" for c in d["changed"]]
@@ -915,7 +916,7 @@ def _answer_compare(
         )
     a, b = docs[:2]
     fallback, notice = None, None
-    if llm is not None and a.ai_enabled and b.ai_enabled:
+    if llm is not None and ai_policy.may_read(a) and ai_policy.may_read(b):
         ctx = Context()
         ctx.add_passages(a, _leading(a, COMPARE_BUDGET))
         ctx.add_passages(b, _leading(b, COMPARE_BUDGET))
@@ -935,7 +936,7 @@ def _answer_compare(
         except Exception as exc:
             fallback = _model_failed(exc)
     elif llm is not None:
-        notice = "AI reading is turned off for one of these documents, so this comparison was built from their text."
+        notice = "One of these documents is kept away from the AI, so this comparison was built from their text."
 
     ca, cb = f"**{a.title}** [D{a.id}]", f"**{b.title}** [D{b.id}]"
     diff = diff_text(document_text(a), document_text(b))
@@ -979,7 +980,7 @@ def _answer_draft(
     hits = _supporting(ranking) if ranking.enough else []
     docs = [view.docs[h.doc_id] for h in hits[:3]]
     fallback = None
-    ai_hits = [h for h in hits[:3] if view.docs[h.doc_id].ai_enabled]
+    ai_hits = [h for h in hits[:3] if ai_policy.may_read(view.docs[h.doc_id])]
     if llm is not None:
         ctx = Context()
         for h in ai_hits:

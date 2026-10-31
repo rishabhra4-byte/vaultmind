@@ -140,6 +140,7 @@ def operations(_: User = Depends(admin_user)):
             "keep": s.backup_keep,
             "recent": backup.status(Path(s.backup_dir)) if s.backup_dir else [],
         },
+        "ai": {"max_classification": s.ai_max_classification},
         "scanner": {
             "enabled": bool(s.clamav_address),
             "reachable": malware.ping() if s.clamav_address else False,

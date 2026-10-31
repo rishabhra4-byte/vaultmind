@@ -24,7 +24,7 @@ from pathlib import PurePath
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import audit, malware, sessions
+from . import audit, malware, metrics, sessions
 from .config import get_settings
 from .connectors import ConnectorError, DirectoryGroup, DirectoryUser, Grant, build_connector
 from .database import SessionLocal
@@ -334,6 +334,7 @@ def sync_source(db: Session, source: Source) -> SyncReport:
             try:
                 verdict = malware.scan(data)
             except malware.ScanUnavailable:
+                metrics.inc("vaultmind_scan_failures_total", source="sync")
                 raise ConnectorError("not scanned: the virus scanner can't be reached (tried again next sync)") from None
             if verdict.infected:
                 audit.record(
@@ -460,6 +461,7 @@ def run_sync(source_id: int, actor_id: int | None = None) -> SyncReport | None:
                 source.status, source.last_error = "error", "The sync failed unexpectedly; see the server log."
             source = db.get(Source, source_id)
             source.status = "error" if source.last_error else "ok"
+            metrics.inc("vaultmind_syncs_total", result=source.status)
             source.last_synced_at = datetime.now(UTC)
             source.stats = report.as_dict()
             actor = db.get(User, actor_id) if actor_id else None

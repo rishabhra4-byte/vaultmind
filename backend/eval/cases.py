@@ -876,4 +876,11 @@ CASES: list[Case] = [
     N("none-visa", "neha", "Does the company sponsor work visas?"),
     N("none-mentor-swap", "aarav", "How do I change my mentor?", "hard"),
     N("none-health-checkup", "rohan", "Do we get an annual health check-up?"),
+    # Added 31 Oct 2026 after a bug: one subject nobody mentions next to words that do match
+    # ("parents" in parental leave, "limit" in expense limits) was answered from the wrong text.
+    N("none-dental-parents", "priya", "What is the dental cover for parents?", "hard"),
+    N("none-gym-limit", "karan", "What is the reimbursement limit for gym fees?", "hard"),
+    N("none-bereavement", "neha", "How many days of bereavement leave do we get?", "hard"),
+    N("none-sabbatical-approval", "rohan", "Who approves sabbatical leave requests?", "hard"),
+    N("none-daycare", "ananya", "Does the company pay for daycare for working parents?", "hard"),
 ]

@@ -161,6 +161,8 @@ jobs:
           echo "VAULTMIND_SEED_DEMO_DATA=true" >> .env
       - name: Build the production image
         run: docker compose build
+      - name: Alert rules are valid (promtool)
+        run: docker run --rm -v "$PWD/deploy:/rules:ro" --entrypoint promtool prom/prometheus:v3.5.0 check rules /rules/prometheus-alerts.yml
       - name: Production mode refuses to start without a secret
         run: |
           set +e

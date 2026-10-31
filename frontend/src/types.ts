@@ -67,6 +67,9 @@ export interface Doc {
   version: number;
   /** False when admins or the document's managers keep it away from the AI. */
   ai_enabled: boolean;
+  /** Whether the AI may read it after all: the company's AI policy can rule out its classification. */
+  ai_allowed: boolean;
+  ai_blocked_reason: string | null;
   /** "mirror": synced with the sharing it has in its source (Drive, SharePoint). */
   acl_mode: "native" | "mirror";
   source: SourceRef | null;

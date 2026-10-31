@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     clamav_address: str = ""
     clamav_required: bool = True
     clamav_timeout_seconds: float = Field(30.0, gt=0, le=600)
+    # The highest classification whose text may be sent to the AI service (app/ai_policy.py).
+    # The default keeps restricted documents (identity numbers, named-people-only files) local.
+    ai_max_classification: Literal["public", "internal", "confidential", "restricted"] = "confidential"
+    # GET /metrics (Prometheus) needs this as a bearer token; without it there's no endpoint.
+    metrics_token: str = ""
 
     max_upload_mb: int = 20
     cors_origins: list[str] = ["http://localhost:5173"]

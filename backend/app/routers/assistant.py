@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import actions
+from .. import actions, metrics
 from ..assistant import QUICK, respond
 from ..chat_log import record_exchange, short_title
 from ..database import get_db
@@ -95,6 +95,10 @@ def chat(body: ChatIn, user: User = Depends(current_user), db: Session = Depends
         compare_with=body.compare_with,
         filters=filters,
     )
+    evidence = "n/a" if not reply.evidence else ("enough" if reply.evidence.get("enough") else "not_enough")
+    metrics.inc("vaultmind_answers_total", mode=reply.mode, evidence=evidence)
+    if reply.fallback_reason:
+        metrics.inc("vaultmind_ai_fallbacks_total", reason=reply.fallback_reason)
     user_msg, bot_msg = record_exchange(db, user, convo, question, reply, intent=body.intent, document_id=document_id)
     db.commit()
     return ChatOut(

@@ -147,9 +147,10 @@ export function DocAsk({ doc, onClose }: { doc: DocDetail; onClose: () => void }
         </div>
       </div>
 
-      {!doc.ai_enabled && meta?.ai_mode === "ai" && (
+      {!doc.ai_allowed && meta?.ai_mode === "ai" && (
         <p className="fallback-note ask-note">
-          AI reading is turned off for this document, so answers are built from its text without AI.
+          {doc.ai_enabled ? doc.ai_blocked_reason : "AI reading is turned off for this document."} Answers are built from
+          its text without AI.
         </p>
       )}
 
