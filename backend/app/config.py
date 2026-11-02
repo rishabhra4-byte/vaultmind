@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 1024
     llm_timeout_seconds: float = 30.0
     llm_max_retries: int = 2
+    # Limits on AI use per UTC day (app/ai_budget.py); 0 means no limit.
+    ai_daily_limit: int = Field(0, ge=0)
+    ai_daily_limit_per_person: int = Field(0, ge=0)
     retrieval_top_k: int = 6
 
     # None = follow the environment: on in development, off in production.

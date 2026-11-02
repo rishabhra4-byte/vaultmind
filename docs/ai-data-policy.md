@@ -58,6 +58,8 @@ and the model is told that document text is data, not instructions.
 | Control | Where |
 |---|---|
 | Turn AI off entirely | Remove `VAULTMIND_ANTHROPIC_API_KEY` |
+| Which model | `VAULTMIND_LLM_MODEL` (default `claude-sonnet-5-5`; `claude-haiku-5-5` costs a fraction) |
+| Daily limits on AI use, company-wide and per person | `VAULTMIND_AI_DAILY_LIMIT`, `VAULTMIND_AI_DAILY_LIMIT_PER_PERSON` (past them, answers are built offline and say why) |
 | Highest classification that may be sent | `VAULTMIND_AI_MAX_CLASSIFICATION` (shown on **Admin → Overview**) |
 | Keep a whole source away from the AI | **Admin → Sources** → the source → *Let the assistant read these files* |
 | Keep one document away from the AI | The document's page → *Let the assistant read this document* (its managers and admins) |

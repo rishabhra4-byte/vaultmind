@@ -32,7 +32,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import actions, ai_policy, facts, glossary, retrieval
+from . import actions, ai_budget, ai_policy, facts, glossary, retrieval
 from .config import get_settings
 from .filters import DocFilter
 from .llm import LLM, REASONS, LLMError, get_llm
@@ -1057,8 +1057,37 @@ def respond(
 ) -> Reply:
     """Answer a question as `user`. With `document_id`, about that one document. `filters`
     narrow which documents a general question is answered from (never widen them)."""
-    view = access_view(db, user)
     llm = get_llm()
+    over_limit = llm is not None and not ai_budget.person_may_use_ai(db, user)
+    reply = _respond(
+        db,
+        user,
+        question,
+        history,
+        None if over_limit else llm,
+        document_id=document_id,
+        intent=intent,
+        compare_with=compare_with,
+        filters=filters,
+    )
+    if over_limit and reply.mode == "offline" and not reply.fallback_reason:
+        reply.fallback_reason = "person_budget"  # say why this one wasn't written by the AI
+    return reply
+
+
+def _respond(
+    db: Session,
+    user: User,
+    question: str,
+    history: list[Message],
+    llm: LLM | None,
+    *,
+    document_id: int | None,
+    intent: str | None,
+    compare_with: int | None,
+    filters: DocFilter | None,
+) -> Reply:
+    view = access_view(db, user)
     scope = None
     if document_id is not None:
         if document_id not in view.allowed:

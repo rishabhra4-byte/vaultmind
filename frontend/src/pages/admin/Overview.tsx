@@ -50,7 +50,7 @@ function Figure({ icon, label, children }: { icon: ReactNode; label: string; chi
 const STATUS: Record<string, string> = { ok: "Synced", error: "Failing", syncing: "Syncing", idle: "Not synced yet" };
 
 interface Operations {
-  ai: { max_classification: Classification };
+  ai: { max_classification: Classification; daily_limit: number; daily_limit_per_person: number; used_today: number | null };
   scanner: { enabled: boolean; reachable: boolean; required: boolean };
   backups: {
     enabled: boolean;
@@ -322,6 +322,13 @@ export default function Overview() {
                 {insights.ai.sources_ai_off} source{insights.ai.sources_ai_off === 1 ? "" : "s"} are kept away from the AI.
                 {ops && ops.ai.max_classification !== "restricted" && (
                   <> Nothing above {ops.ai.max_classification} is ever sent to it.</>
+                )}
+                {ops && ops.ai.daily_limit > 0 && (
+                  <>
+                    {" "}
+                    Today: {ops.ai.used_today ?? 0} of {ops.ai.daily_limit} AI calls
+                    {ops.ai.daily_limit_per_person > 0 && `, at most ${ops.ai.daily_limit_per_person} answers per person`}.
+                  </>
                 )}
               </p>
               <h3>Backups</h3>

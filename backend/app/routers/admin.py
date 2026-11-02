@@ -140,7 +140,12 @@ def operations(_: User = Depends(admin_user)):
             "keep": s.backup_keep,
             "recent": backup.status(Path(s.backup_dir)) if s.backup_dir else [],
         },
-        "ai": {"max_classification": s.ai_max_classification},
+        "ai": {
+            "max_classification": s.ai_max_classification,
+            "daily_limit": s.ai_daily_limit,
+            "daily_limit_per_person": s.ai_daily_limit_per_person,
+            "used_today": getattr(getattr(get_llm(), "budget", None), "used", None),
+        },
         "scanner": {
             "enabled": bool(s.clamav_address),
             "reachable": malware.ping() if s.clamav_address else False,

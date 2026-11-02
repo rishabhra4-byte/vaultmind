@@ -5,7 +5,9 @@
 #   restarts or goes to sleep (after 15 minutes without visitors; waking takes about a minute).
 # - Anyone with the link can sign in as any demo person, including the administrator, and
 #   upload files. Never put real documents on it. For a real install, see docs/operations.md.
-# - No AI key: answers are built offline, and every answer says so.
+# - AI answers need VAULTMIND_ANTHROPIC_API_KEY, set in Render's dashboard (never in this file).
+#   Without it, answers are built offline, and every answer says so. With it, the demo uses the
+#   cheapest model and daily limits, so a public link can't run up the bill.
 services:
   - type: web
     runtime: docker
@@ -28,3 +30,11 @@ services:
       # visitor would share one address and one sign-in limit.
       - key: FORWARDED_ALLOW_IPS
         value: "*"
+      - key: VAULTMIND_ANTHROPIC_API_KEY
+        sync: false # a secret: entered in Render's dashboard, never stored here
+      - key: VAULTMIND_LLM_MODEL
+        value: claude-haiku-5-5
+      - key: VAULTMIND_AI_DAILY_LIMIT # AI calls per day for the whole demo
+        value: "300"
+      - key: VAULTMIND_AI_DAILY_LIMIT_PER_PERSON # per demo person (visitors share them)
+        value: "30"

@@ -27,6 +27,10 @@ REASONS = {
     "network": "VaultMind couldn't reach the AI service, so this answer was built from matching passages instead.",
     "bad_response": "The AI service returned an unusable answer, so this one was built from matching passages instead.",
     "error": "The AI service failed, so this answer was built from matching passages instead.",
+    "budget": "Today's limit of AI answers for the whole company has been reached, so this answer was built from "
+    "matching passages instead. It resets at midnight (UTC).",
+    "person_budget": "You've used today's AI answers, so this one was built from matching passages instead. "
+    "It resets at midnight (UTC).",
 }
 
 
@@ -124,7 +128,7 @@ def get_llm() -> LLM | None:
         s = get_settings()
         if s.anthropic_api_key:
             try:
-                _cached = AnthropicLLM(
+                client: LLM = AnthropicLLM(
                     s.anthropic_api_key,
                     s.llm_model,
                     base_url=s.anthropic_base_url,
@@ -134,4 +138,9 @@ def get_llm() -> LLM | None:
             except Exception:  # missing SDK or bad config shouldn't take the app down
                 log.exception("Could not initialise the LLM client; running in offline mode")
                 return None
+            if s.ai_daily_limit > 0:
+                from .ai_budget import BudgetedLLM, DailyBudget
+
+                client = BudgetedLLM(client, DailyBudget(s.ai_daily_limit))
+            _cached = client
     return _cached
