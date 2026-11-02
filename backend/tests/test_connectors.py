@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from fakeserver import GDOC, GFOLDER, FakeGoogle, FakeGraph, tiny_pdf
+from fakeserver import GDOC, GFOLDER, GSHEET, GSLIDES, FakeGoogle, FakeGraph, tiny_pdf
+from office import pptx, xlsx
 from sqlalchemy import select
 
 from app import sync
@@ -354,7 +355,7 @@ def _library(fake: FakeGraph):
     )
     fake.add(
         "i-deck",
-        "Benefits Deck.pptx",
+        "Benefits Deck.ppt",
         parent="f-pol",
         content=b"Health insurance covers parents from January",
         perms=[
@@ -402,6 +403,23 @@ def _graph_source(client, login, **config) -> int:
     return r.json()["id"]
 
 
+def test_google_sheets_keep_every_tab_and_slides_their_notes(client, login, google):
+    google.add("folderRoot01", "Launch", mime=GFOLDER)
+    everyone = [{"type": "domain", "role": "reader", "domain": "northwind.example"}]
+    budget = xlsx({"Summary": [["Item", "Cost"], ["Ads", 120000]], "Q2": [["Item", "Cost"], ["Events", 450000]]})
+    google.add("sheetBudget1", "Launch Budget", parent="folderRoot01", mime=GSHEET, content=budget, perms=everyone)
+    deck = pptx([{"title": "Launch day", "bullets": ["Doors open at 9"], "notes": "Mention the press embargo lifts at noon."}])
+    google.add("slidesDeck01", "Launch Deck", parent="folderRoot01", mime=GSLIDES, content=deck, perms=everyone)
+    source_id = _google_source(client, login)
+    report = sync.run_sync(source_id)
+    assert report.added == 2, report.errors
+    docs, karan = _docs(source_id), login("karan")
+    sheet = client.get(f"/api/documents/{docs['Launch Budget'].id}", headers=karan).json()
+    assert "Item: Events; Cost: 450000." in sheet["preview"], "the second tab is read too"
+    slides = client.get(f"/api/documents/{docs['Launch Deck'].id}", headers=karan).json()
+    assert "press embargo lifts at noon" in slides["preview"]
+
+
 def test_microsoft_365_files_keep_their_sharing(client, login, graph):
     _library(graph)
     graph.throttle_next = 2  # Graph says "slow down" twice; the connector waits and retries
@@ -416,9 +434,11 @@ def test_microsoft_365_files_keep_their_sharing(client, login, graph):
     assert "Leave Policy.docx" not in _titles(client, ananya)
     assert "Payroll Calendar" in _titles(client, ananya)  # via the Finance group
     assert "Payroll Calendar" not in _titles(client, neha)
-    assert "Benefits Deck.pptx" in _titles(client, karan)  # an organisation-wide link
-    deck = _docs(source_id)["Benefits Deck.pptx"]
-    assert "Health insurance" in client.get(f"/api/documents/{deck.id}", headers=karan).json()["preview"]  # via PDF
+    assert "Benefits Deck.ppt" in _titles(client, karan)  # an organisation-wide link
+    deck = _docs(source_id)["Benefits Deck.ppt"]
+    assert (
+        "Health insurance" in client.get(f"/api/documents/{deck.id}", headers=karan).json()["preview"]
+    )  # an old .ppt, converted by SharePoint to PDF
     with SessionLocal() as db:
         assert db.scalar(select(UserIdentity.user_id).where(UserIdentity.subject == "aad-neha")) is not None
         assert db.scalar(select(User).where(User.email.like("%ext%"))) is None  # guests aren't imported

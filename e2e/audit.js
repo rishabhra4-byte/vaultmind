@@ -566,6 +566,12 @@ async function signOut(page) {
       const t = await p.textContent('dialog .error');
       return t.includes("isn't a supported file") || t;
     });
+    await check('upload: an old Office file is told to be saved in the new format', async () => {
+      fs.writeFileSync(`${TMP}/budget.xls`, 'old binary');
+      await p.setInputFiles('.dropzone input', `${TMP}/budget.xls`);
+      const t = await p.textContent('dialog .error');
+      return t.includes('Save it as .xlsx') || t;
+    });
     await check('upload: empty file is rejected by the server with a message', async () => {
       await p.setInputFiles('.dropzone input', `${TMP}/empty.txt`);
       await p.waitForSelector('dialog .error');
@@ -594,6 +600,20 @@ async function signOut(page) {
       await p.click('dialog button:has-text("Upload"):not(:has-text("as"))');
       await toast(p, 'Uploaded');
       await p.waitForSelector('.doc-row:has-text("Team Offsite Plan")');
+    });
+    await check('upload: a spreadsheet is read sheet by sheet, each row with its column labels', async () => {
+      await p.click('button:has-text("Upload a document")');
+      await p.setInputFiles('.dropzone input', path.join(__dirname, '../backend/tests/fixtures/expense-limits.xlsx'));
+      await p.waitForSelector('.scan');
+      await p.fill('dialog input[maxlength="255"]', 'Expense limits sheet');
+      await p.click('dialog button:has-text("Upload"):not(:has-text("as"))');
+      await toast(p, 'Uploaded');
+      await p.click('.doc-row:has-text("Expense limits sheet") .doc-title');
+      await p.waitForSelector('.paper h2:has-text("Approvers")');
+      const text = await p.textContent('.paper');
+      await p.goBack();
+      await p.waitForSelector('.doc-row');
+      return text.includes('City tier: Tier 2; Hotel per night (INR): 5000') || text.slice(0, 300);
     });
     await check('upload: same file again is flagged as a duplicate', async () => {
       await p.click('button:has-text("Upload a document")');

@@ -5,7 +5,8 @@ Authentication is a service account with domain-wide delegation, acting as an ad
 drive.readonly, and for directory sync admin.directory.user.readonly,
 admin.directory.group.readonly and admin.directory.group.member.readonly.
 
-Google Docs, Sheets and Slides are exported as text (Sheets as CSV); other files are
+Google Docs are exported as text, Sheets as Excel files (every tab, not just the first, as a
+CSV export would give) and Slides as PowerPoint files (with speaker notes); other files are
 downloaded as they are. Each file's sharing is read with the permissions API and copied
 into VaultMind, so people see exactly the files Drive would show them.
 """
@@ -35,8 +36,11 @@ FOLDER = "application/vnd.google-apps.folder"
 # Google's own formats can't be downloaded; they're exported to something we can read.
 EXPORTS = {
     "application/vnd.google-apps.document": ("text/plain", ".txt"),
-    "application/vnd.google-apps.spreadsheet": ("text/csv", ".csv"),
-    "application/vnd.google-apps.presentation": ("text/plain", ".txt"),
+    "application/vnd.google-apps.spreadsheet": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx"),
+    "application/vnd.google-apps.presentation": (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".pptx",
+    ),
 }
 FILE_FIELDS = "id,name,mimeType,modifiedTime,md5Checksum,size,webViewLink,trashed"
 _ID = re.compile(r"(?:folders/|id=|^)([A-Za-z0-9_-]{10,})")

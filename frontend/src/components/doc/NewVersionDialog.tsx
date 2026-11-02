@@ -5,7 +5,7 @@ import type { DocDetail } from "../../types";
 import { Modal } from "../bits";
 import { IconUpload } from "../icons";
 
-const ACCEPT = ".txt,.md,.pdf,.docx,.csv,.json";
+const ACCEPT = ".txt,.md,.pdf,.docx,.xlsx,.pptx,.csv,.json";
 
 /** Replace the document's file. Everyone who read it recently is told what changed. */
 export function NewVersionDialog({ doc, onClose, onDone }: { doc: DocDetail; onClose: () => void; onDone: () => void }) {

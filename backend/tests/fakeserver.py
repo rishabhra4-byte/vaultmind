@@ -113,6 +113,14 @@ def tiny_pdf(text: str) -> bytes:
 
 GFOLDER = "application/vnd.google-apps.folder"
 GDOC = "application/vnd.google-apps.document"
+GSHEET = "application/vnd.google-apps.spreadsheet"
+GSLIDES = "application/vnd.google-apps.presentation"
+# What each Google format may be exported as (Drive's export formats).
+EXPORTS = {
+    GDOC: "text/plain",
+    GSHEET: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    GSLIDES: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
 
 
 class FakeGoogle:
@@ -164,7 +172,7 @@ class FakeGoogle:
             parent = req.query["q"].split("'")[1]
             kids = [
                 {k: v for k, v in f.items() if k not in ("content", "permissions", "parents")}
-                | ({"md5Checksum": str(hash(f["content"]))} if f["mimeType"] != GDOC and f["mimeType"] != GFOLDER else {})
+                | ({"md5Checksum": str(hash(f["content"]))} if f["mimeType"] not in (GDOC, GSHEET, GSLIDES, GFOLDER) else {})
                 | {"webViewLink": f"https://drive.example/{f['id']}"}
                 for f in self.files.values()
                 if parent in f["parents"] and not f["trashed"]
@@ -175,7 +183,7 @@ class FakeGoogle:
             return self._page(self.files[fid]["permissions"], "permissions", req)
         if p.startswith("/drive/v3/files/") and p.endswith("/export"):
             f = self.files[p.split("/")[4]]
-            assert f["mimeType"] == GDOC and req.query["mimeType"] == "text/plain"
+            assert EXPORTS[f["mimeType"]] == req.query["mimeType"], (f["mimeType"], req.query["mimeType"])
             return Resp(200, f["content"])
         if p.startswith("/drive/v3/files/"):
             f = self.files.get(p.split("/")[4])

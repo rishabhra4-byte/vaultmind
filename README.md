@@ -43,6 +43,7 @@ The intern gets nothing from the salary sheet. It is never even sent to the mode
 **Connected to the company**
 
 - **Google Drive, Microsoft 365 and shared folders.** Files are synced on a schedule with the sharing they have at the source: named people, groups, the whole domain. Or use folder rules: each folder gets an owning team and a classification. Files deleted at the source disappear here.
+- **Reads the files companies use.** PDF, Word, Excel (every sheet; each row is kept with its column labels, so a row found by search still says what its numbers are) and PowerPoint (slides, tables and speaker notes), plus text, Markdown, CSV and JSON. Old `.doc`, `.xls` and `.ppt` files, and scanned pages with no text in them, can't be read yet, and say so.
 - **People from the directory.** Optionally, people, teams (from departments) and groups are kept in step with Google Workspace or Microsoft Entra ID.
 - **Sign in with Google or Microsoft.** OpenID Connect with PKCE, limited to your domains or tenant. Password sign-in can be switched off (admins keep it as a fallback).
 - **Notifications.** In the app, by email, or in Slack: an access request to decide, a decision on yours, access about to expire, or a change to a document you read.
@@ -122,7 +123,7 @@ Search follows the same rule. Content matching only ever runs over documents the
 - Strict security headers and content security policy (no inline scripts), JSON 404s for unknown API routes, and request size limits enforced before parsing.
 - Sign-in limits per account and per network address that count only failed attempts, the same answer and timing for unknown accounts, and input length limits.
 - Production refuses to start with a missing or weak signing secret, and demo data is off unless asked for.
-- Uploads: file names are sanitised, downloads are always served as attachments with a safe content type, and zip bombs, oversized PDFs and password-protected files get clear refusals.
+- Uploads: file names are sanitised, downloads are always served as attachments with a safe content type, and zip bombs, XML entity tricks in Office files, oversized PDFs and password-protected files get clear refusals.
 - Requests and approvals are safe under concurrency (a unique index and compare-and-set), and files are deleted from storage when the last document using them goes.
 - AI errors (bad key, no credit, rate limits, overload, timeouts) fall back to an offline answer that says why, and the API key never reaches the browser.
 

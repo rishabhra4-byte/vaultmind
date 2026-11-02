@@ -282,7 +282,11 @@ def sync_directory(db: Session, provider: str, source: Source, users: list[Direc
 
 
 def _title(name: str) -> str:
-    stem = PurePath(name).stem if PurePath(name).suffix.lower() in {".txt", ".md", ".pdf", ".docx", ".csv", ".json"} else name
+    stem = (
+        PurePath(name).stem
+        if PurePath(name).suffix.lower() in {".txt", ".md", ".pdf", ".docx", ".xlsx", ".pptx", ".csv", ".json"}
+        else name
+    )
     return (stem or name).strip()[:255]
 
 

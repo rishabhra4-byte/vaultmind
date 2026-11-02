@@ -21,7 +21,8 @@ from ..config import get_settings
 from ..extract import SUPPORTED_EXTENSIONS
 from .base import ConnectorError, DirectoryGroup, DirectoryUser, Grant, Http, RemoteFile
 
-CONVERT_TO_PDF = {".doc", ".ppt", ".pptx", ".pps", ".ppsx", ".xls", ".xlsx", ".odt", ".odp", ".ods", ".rtf"}
+# Read as they are: .docx, .xlsx, .pptx (see extract.py). These are converted by SharePoint first.
+CONVERT_TO_PDF = {".doc", ".ppt", ".pps", ".ppsx", ".xls", ".odt", ".odp", ".ods", ".rtf"}
 
 
 class _Token:
