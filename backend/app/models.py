@@ -11,6 +11,7 @@ Source ──< Document                 a connected file store (shared folder, G
 Document ──< AccessGrant >── User   time-boxed exceptions, created by approved requests
 User ──< AccessRequest
 User ──< Conversation ──< Message   assistant chat history
+Message ──< AnswerFeedback          whether an answer helped, from the person who asked
 User ──< AssistantAction            things the assistant offered to do, done only once confirmed
 User ──< Notification               in-app notices, also sent by email or Slack when set up
 User ──< UserIdentity               the person's id at Google, Microsoft or Slack
@@ -22,7 +23,19 @@ AuditEvent                          append-only activity log
 from datetime import UTC, datetime
 from enum import IntEnum, StrEnum
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -339,6 +352,19 @@ class DocumentChunk(Base):
     document: Mapped[Document] = relationship(back_populates="chunks")
 
 
+class ChunkEmbedding(Base):
+    """A passage's vector for search by meaning (app/embeddings.py), from the configured model.
+    Deleted with the passage; replaced when the model changes."""
+
+    __tablename__ = "chunk_embeddings"
+
+    chunk_id: Mapped[int] = mapped_column(ForeignKey("document_chunks.id", ondelete="CASCADE"), primary_key=True)
+    model: Mapped[str] = mapped_column(String(200))
+    dims: Mapped[int] = mapped_column(Integer)
+    vector: Mapped[bytes] = mapped_column(LargeBinary)  # float32, unit length
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class AccessGrant(Base):
     __tablename__ = "access_grants"
 
@@ -410,6 +436,23 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+
+
+class AnswerFeedback(Base):
+    """Whether an answer helped, from the person who asked. Deleted with the conversation, so
+    deleting a conversation really removes it."""
+
+    __tablename__ = "answer_feedback"
+    __table_args__ = (UniqueConstraint("message_id", "user_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[int] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    rating: Mapped[str] = mapped_column(String(10))  # up | down
+    reason: Mapped[str] = mapped_column(String(40), default="")  # wrong | missing | source | should_abstain | other
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class AssistantAction(Base):

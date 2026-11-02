@@ -284,3 +284,17 @@ export const IconKey = (p: P) => (
     <path d="m10.7 12.3 9.3-9.3M16 7l3 3M14 9l2 2" />
   </Svg>
 );
+
+export const IconThumbUp = (p: P) => (
+  <Svg {...p}>
+    <path d="M7 10v11H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h3z" />
+    <path d="M7 10l4-8a3 3 0 0 1 3 3v4h5.5a2 2 0 0 1 2 2.3l-1.2 7.7a2 2 0 0 1-2 1.7H7" />
+  </Svg>
+);
+
+export const IconThumbDown = (p: P) => (
+  <Svg {...p}>
+    <path d="M17 14V3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-3z" />
+    <path d="M17 14l-4 8a3 3 0 0 1-3-3v-4H4.5a2 2 0 0 1-2-2.3l1.2-7.7a2 2 0 0 1 2-1.7H17" />
+  </Svg>
+);

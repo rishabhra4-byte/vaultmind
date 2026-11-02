@@ -23,9 +23,11 @@ Every reply says how it was made:
   direct   prepared by VaultMind from its own records (versions, a template), without the model
 """
 
+import contextvars
 import html
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -50,6 +52,8 @@ log = logging.getLogger(__name__)
 
 COMPANY = "Northwind Labs"
 CITATION = re.compile(r"\[D(\d+)(?:\.(\d+))?\]")
+# A citation with the spaces before it, so removing one doesn't leave "a year ." behind.
+SPACED_CITATION = re.compile(r"[ \t]*\[D(\d+)(?:\.(\d+))?\]")
 RECOMMEND_INTENT = re.compile(
     r"(?i)\b(recommend|suggest|what should i (?:read|look at|start)|where (?:do|should) i start|"
     r"onboard\w*|new (?:here|joiner|hire)|getting started|first (?:day|week)|which (?:docs|documents|files))\b"
@@ -305,16 +309,17 @@ class Context:
             doc_id = int(m.group(1))
             if doc_id not in self.passages:
                 return ""
+            space = m.group(0)[: m.start(1) - m.start() - 2]
             ordinal = m.group(2)
             if ordinal is not None and int(ordinal) not in self.passages[doc_id]:
                 cited.setdefault(doc_id, [])
-                return f"[D{doc_id}]"
+                return f"{space}[D{doc_id}]"
             cited.setdefault(doc_id, [])
             if ordinal is not None:
                 cited[doc_id].append(int(ordinal))
             return m.group(0)
 
-        return CITATION.sub(check, content), cited
+        return SPACED_CITATION.sub(check, content), cited
 
 
 def _system_prompt(user: User, extra: str = "") -> str:
@@ -333,6 +338,9 @@ Rules:
 - Be concise: short paragraphs or bullet points, under 200 words unless asked for more."""
     return prompt + (f"\n\n{extra}" if extra else "")
 
+
+# The model's way of saying the documents don't answer it (its instructions ask for this phrase).
+NO_EVIDENCE = re.compile(r"\b(?:couldn.?t|could not|can.?t|cannot|didn.?t|did not) find enough evidence\b", re.I)
 
 HISTORY_LEFT_OUT = "(An earlier answer, drawn from documents the AI may not read, is left out.)"
 
@@ -356,12 +364,27 @@ def _history_for_model(view: AccessView, history: list[Message]) -> list[dict]:
     return messages
 
 
+# Set by respond(on_text=...) while an answer is streamed to the person as it's written.
+_on_text: contextvars.ContextVar[Callable[[str], None] | None] = contextvars.ContextVar("on_text", default=None)
+
+
 def _ask_model(
     llm: LLM, view: AccessView, ctx: Context, question: str, history: list[Message], extra: str = "", locked=None
 ) -> str:
     messages = _history_for_model(view, history)
     messages.append({"role": "user", "content": f"{ctx.block(locked)}\n\nQuestion: {redact_for_ai(question)}"})
-    return llm.complete(_system_prompt(view.user, extra), messages, max_tokens=get_settings().llm_max_tokens)
+    system, max_tokens = _system_prompt(view.user, extra), get_settings().llm_max_tokens
+    on_text = _on_text.get()
+    if on_text is None or not hasattr(llm, "stream"):
+        return llm.complete(system, messages, max_tokens=max_tokens)
+    parts = []
+    for piece in llm.stream(system, messages, max_tokens):
+        parts.append(piece)
+        on_text(piece)
+    text = "".join(parts).strip()
+    if not text:
+        raise LLMError("bad_response", "empty stream")
+    return text
 
 
 def _model_failed(exc: Exception) -> str:
@@ -636,8 +659,9 @@ def _answer_question(
                         outdated=outdated.get(doc_id),
                     )
                 )
-            # The model answered from its sources only if it cited them.
-            evidence = {**evidence, "enough": bool(cited)}
+            # The model answered from its sources only if it cited them, and didn't say (as its
+            # instructions ask it to) that it couldn't find enough evidence.
+            evidence = {**evidence, "enough": bool(cited) and not NO_EVIDENCE.search(content)}
             return Reply(
                 content,
                 "ai",
@@ -1013,7 +1037,7 @@ def _answer_draft(
         )
         try:
             text = _ask_model(llm, view, ctx, question, history, extra)
-            text = CITATION.sub("", text).strip()
+            text = SPACED_CITATION.sub("", text).strip()
             match = re.match(r"(?is)^\s*subject:\s*(.+?)\n\s*\n(.*)$", text)
             subject, body = (
                 (match.group(1).strip(), match.group(2).strip()) if match else ((about or "Quick question")[:120], text)
@@ -1054,9 +1078,29 @@ def respond(
     intent: str | None = None,
     compare_with: int | None = None,
     filters: DocFilter | None = None,
+    on_text: Callable[[str], None] | None = None,
 ) -> Reply:
     """Answer a question as `user`. With `document_id`, about that one document. `filters`
-    narrow which documents a general question is answered from (never widen them)."""
+    narrow which documents a general question is answered from (never widen them). With
+    `on_text`, an AI-written answer is passed to it piece by piece as it's written (the final
+    Reply is still the one to keep: citations are checked only once the answer is complete)."""
+    token = _on_text.set(on_text)
+    try:
+        return _respond_within_limits(db, user, question, history, document_id, intent, compare_with, filters)
+    finally:
+        _on_text.reset(token)
+
+
+def _respond_within_limits(
+    db: Session,
+    user: User,
+    question: str,
+    history: list[Message],
+    document_id: int | None,
+    intent: str | None,
+    compare_with: int | None,
+    filters: DocFilter | None,
+) -> Reply:
     llm = get_llm()
     over_limit = llm is not None and not ai_budget.person_may_use_ai(db, user)
     reply = _respond(

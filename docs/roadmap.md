@@ -38,13 +38,19 @@ side project?" when the Code of Conduct talks about "outside work", or "Do team 
 approval?" when the policy says "team meals need prior manager approval". Keyword search with a
 glossary only goes so far.
 
-**What:** optional dense embeddings from an embeddings server the company runs (any
-OpenAI-compatible endpoint, so nothing has to leave the network), fused with the current search
-by reciprocal rank fusion. Embedded only for documents the AI data policy allows.
+**Built, off by default, not yet measured (2 November).** Search by meaning
+([operations](operations.md#search-by-meaning-optional)): any OpenAI-style embeddings service,
+including one the company runs so nothing leaves the network; only passages the AI data policy
+allows are embedded; no new dependency. Instead of reciprocal rank fusion, meaning is one more
+signal in the existing reranker, weighted by how poorly the question's words matched, and the
+passage closest in meaning is always among those the AI reads. Whether there's enough evidence
+to answer is still decided on the words.
 
 **Done when:** paraphrase accuracy on the held-out questions rises clearly (target 80%) with no
-drop elsewhere and no new leaks. Not built yet because no model could be run to measure it, and
-adding it unmeasured would add dependencies for nothing.
+drop elsewhere and no new leaks, measured with a real model: `python -m eval.run --embeddings`,
+or the *Answer quality with AI* workflow with "embeddings" ticked. Until then it stays off by
+default. A stand-in model that only knows four groups of words left the dev split's answers
+unchanged, which shows it's safe to switch on, not that it helps.
 
 **Also:** one subject no document mentions next to words that do match ("dental cover for
 parents" matched parental leave) is still answered from the wrong text. A simple rule to stop

@@ -25,6 +25,16 @@ def run_backup() -> None:
     run_scheduled()
 
 
+def embed_pending() -> int:
+    """Vectors for new passages, when search by meaning is on (a bounded batch per tick)."""
+    from . import embeddings
+
+    if not embeddings.enabled():
+        return 0
+    with SessionLocal() as db:
+        return embeddings.embed_pending(db)
+
+
 def remind_expiring_grants(now: datetime | None = None) -> int:
     """Tell people two days before their temporary access to a document ends."""
     from .models import AccessGrant, Document
@@ -103,3 +113,4 @@ class Scheduler:
             job("expiry reminders", remind_expiring_grants)
             job("backup", run_backup)
         job("deliveries", deliver_pending)
+        job("search by meaning", embed_pending)

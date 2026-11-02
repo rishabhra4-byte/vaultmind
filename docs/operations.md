@@ -126,6 +126,60 @@ as `eicar.txt` and upload it. The upload should be refused with "This file conta
 and **Admin → Activity** should show the refusal. **Admin → Overview → Malware scanning** says
 whether ClamAV is answering.
 
+## Feedback on answers
+
+People mark answers helpful or not, with a reason and an optional note. **Admin → Overview →
+Answers marked unhelpful** lists the recent ones with the question, the reason and whether AI
+wrote the answer, never who marked it. To turn them into benchmark questions:
+
+```bash
+python -m app.cli export-feedback --out feedback.jsonl          # unhelpful answers, last year
+python -m app.cli export-feedback --out all.jsonl --all --days 30
+```
+
+Each line is a draft case: fill in what the right answer is (`expect`, `docs`, `says`) before
+adding it to `backend/eval/cases.py`. Feedback is deleted with its conversation.
+
+## Search by meaning (optional)
+
+Off unless `VAULTMIND_EMBEDDINGS_URL` and `VAULTMIND_EMBEDDINGS_MODEL` are set. It finds
+passages that say the same thing in other words, using any service with an OpenAI-style
+`POST /embeddings`. What is sent to it is in the [AI data policy](ai-data-policy.md).
+
+**Inside the company** (nothing leaves your network), for example Ollama next to VaultMind:
+
+```bash
+docker run -d --name ollama -p 11434:11434 ollama/ollama
+docker exec ollama ollama pull nomic-embed-text
+# then, for VaultMind:
+VAULTMIND_EMBEDDINGS_URL=http://ollama:11434/v1
+VAULTMIND_EMBEDDINGS_MODEL=nomic-embed-text
+VAULTMIND_EMBEDDINGS_QUERY_PREFIX="search_query: "        # this model wants these two prefixes
+VAULTMIND_EMBEDDINGS_DOCUMENT_PREFIX="search_document: "
+```
+
+Hugging Face text-embeddings-inference and vLLM serve the same `/v1/embeddings` API.
+
+**Hosted:** Voyage AI (`https://api.voyageai.com/v1`, e.g. `voyage-4-lite`, with
+`VAULTMIND_EMBEDDINGS_API_KEY`) or OpenAI (`https://api.openai.com/v1`,
+`text-embedding-3-small`). Check the provider's current models and terms.
+
+**Then:**
+
+1. Run `python -m app.cli embed` once (in Docker: `docker compose exec app python -m app.cli
+   embed`). It embeds every passage the AI may read and says how many are done. After that the
+   scheduler embeds new and changed passages in the background, up to 512 per tick; until a
+   passage has a vector, it's found by its words.
+2. **Admin → Overview → AI** shows the model and how many passages are ready.
+3. Measure it on your data before relying on it: `python -m eval.run --embeddings` (offline
+   answers) or the *Answer quality with AI* workflow with "embeddings" ticked. Compare with a run
+   without it. The weights were not tuned on a real model.
+
+Changing the model re-embeds everything (vectors from another model are never mixed in). If the
+service fails, searches use words alone and `vaultmind_embedding_failures_total` counts it.
+Vectors are compared in the app process in plain Python: about 0.2 s per question for 20,000
+passages of 1,024 dimensions; for much larger libraries pick a model with fewer dimensions.
+
 ## Monitoring
 
 `GET /metrics` serves Prometheus metrics when `VAULTMIND_METRICS_TOKEN` is set; scrapers send
@@ -151,6 +205,8 @@ rule_files: [/etc/prometheus/vaultmind-alerts.yml]   # deploy/prometheus-alerts.
 | `vaultmind_files_blocked_total{source}`, `vaultmind_scan_failures_total` | Malware refused; files refused because they couldn't be scanned |
 | `vaultmind_syncs_total{result}`, `vaultmind_sources_failing` | Source syncs, and sources whose last sync failed |
 | `vaultmind_backups_total{result}`, `vaultmind_backup_last_success_timestamp_seconds`, `vaultmind_backup_last_verified` | Backups and their restore checks |
+| `vaultmind_answer_feedback_total{rating,mode}` | Answers people marked helpful (up) or not (down) |
+| `vaultmind_embedding_failures_total{reason,stage}`, `vaultmind_embedding_vectors` | Search by meaning: failed calls to the embedding service, and passages with a vector |
 | `vaultmind_database_up`, `vaultmind_scanner_up`, `vaultmind_sessions_open`, `vaultmind_documents` | State, read at each scrape |
 
 Counters live in the app process and restart from zero with it; `rate()` and `increase()`
@@ -316,3 +372,6 @@ Report security problems in VaultMind itself privately to the maintainers (see
 | Malware scanning | Tests against a stand-in `clamd` that speaks its protocol (clean, infected, errors, silence, down) | A real ClamAV: start it as above and upload the EICAR file |
 | Metrics and alerts | Tests of the endpoint, its token, labels and counts; a test that every alert uses exported metrics; `promtool check rules` in CI | A real Prometheus scraping a running install |
 | Sessions | API tests and browser checks (other sessions, admin sign-out, the reason shown at sign-in) | |
+| Streamed answers | API tests with a fake model and the real Anthropic SDK against a stand-in API; a browser check against a local stand-in streaming word by word | Streaming from the real Claude API |
+| Search by meaning | Tests against a stand-in embedding service (data policy, permissions, failures, new versions, model changes) | Answer quality with a real embedding model: `python -m eval.run --embeddings` |
+| Excel and PowerPoint | Files saved by openpyxl, python-pptx and LibreOffice; hand-built edge cases; zip and XML bombs | Files from Microsoft Office itself, Google Sheets/Slides exported as Office files by the real Drive API |

@@ -301,7 +301,8 @@ interface Scan {
   tags: string[];
 }
 
-const ACCEPT = ".txt,.md,.pdf,.docx,.csv,.json";
+const ACCEPT = ".txt,.md,.pdf,.docx,.xlsx,.pptx,.csv,.json";
+const OLD_OFFICE: Record<string, string> = { ".doc": ".docx", ".xls": ".xlsx", ".ppt": ".pptx" };
 const MAX_MB = 20;
 
 function UploadDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
@@ -328,6 +329,7 @@ function UploadDialog({ onClose, onDone }: { onClose: () => void; onDone: () => 
     const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
     if (!ACCEPT.split(",").includes(ext)) {
       setFile(null);
+      if (OLD_OFFICE[ext]) return setError(`Old Office files (${ext}) can't be read. Save it as ${OLD_OFFICE[ext]} in Office, then upload that.`);
       return setError(`“${f.name}” isn't a supported file. Use ${ACCEPT.replaceAll(",", ", ")}.`);
     }
     if (f.size > MAX_MB * 1024 * 1024) {

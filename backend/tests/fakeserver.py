@@ -113,6 +113,14 @@ def tiny_pdf(text: str) -> bytes:
 
 GFOLDER = "application/vnd.google-apps.folder"
 GDOC = "application/vnd.google-apps.document"
+GSHEET = "application/vnd.google-apps.spreadsheet"
+GSLIDES = "application/vnd.google-apps.presentation"
+# What each Google format may be exported as (Drive's export formats).
+EXPORTS = {
+    GDOC: "text/plain",
+    GSHEET: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    GSLIDES: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
 
 
 class FakeGoogle:
@@ -164,7 +172,7 @@ class FakeGoogle:
             parent = req.query["q"].split("'")[1]
             kids = [
                 {k: v for k, v in f.items() if k not in ("content", "permissions", "parents")}
-                | ({"md5Checksum": str(hash(f["content"]))} if f["mimeType"] != GDOC and f["mimeType"] != GFOLDER else {})
+                | ({"md5Checksum": str(hash(f["content"]))} if f["mimeType"] not in (GDOC, GSHEET, GSLIDES, GFOLDER) else {})
                 | {"webViewLink": f"https://drive.example/{f['id']}"}
                 for f in self.files.values()
                 if parent in f["parents"] and not f["trashed"]
@@ -175,7 +183,7 @@ class FakeGoogle:
             return self._page(self.files[fid]["permissions"], "permissions", req)
         if p.startswith("/drive/v3/files/") and p.endswith("/export"):
             f = self.files[p.split("/")[4]]
-            assert f["mimeType"] == GDOC and req.query["mimeType"] == "text/plain"
+            assert EXPORTS[f["mimeType"]] == req.query["mimeType"], (f["mimeType"], req.query["mimeType"])
             return Resp(200, f["content"])
         if p.startswith("/drive/v3/files/"):
             f = self.files.get(p.split("/")[4])
@@ -294,3 +302,45 @@ def wait_until(check: Callable[[], bool], timeout: float = 10.0) -> None:
             return
         time.sleep(0.05)
     raise AssertionError("condition not met in time")
+
+
+# --------------------------------------------------------------------------- embeddings
+
+# A stand-in for an embedding model: each group of words is one "meaning", so texts that use
+# different words from the same group come out close together. Real models learn this; here
+# it's spelled out, so a test can say exactly which passages should match.
+MEANINGS = [
+    {"approve", "approves", "approver", "approval", "sign", "signs", "authorise", "authorize", "authorises"},
+    {"200000", "lakh", "lakhs", "200,000"},
+    {"spend", "spending", "amount", "amounts", "expense", "expenses", "cost", "costs"},
+    {"leave", "holiday", "holidays", "vacation", "pto"},
+]
+
+
+def meaning_vector(text: str) -> list[float]:
+    words = set(text.lower().replace(":", " ").replace(";", " ").replace(".", " ").replace("?", " ").split())
+    return [0.05] + [1.0 if words & group else 0.0 for group in MEANINGS]
+
+
+class FakeEmbeddings(FakeServer):
+    """POST /v1/embeddings, OpenAI style. `fail` makes it answer with that HTTP status."""
+
+    def __init__(self, key: str = "emb-key") -> None:
+        self.key = key
+        self.fail: int | None = None
+        self.inputs: list[str] = []
+        super().__init__(self._handle)
+        self.base = self.url + "/v1"
+
+    def _handle(self, req: Req) -> Resp:
+        if req.path != "/v1/embeddings" or req.method != "POST":
+            return Resp(404, {"error": "not found"})
+        if req.bearer != self.key:
+            return Resp(401, {"error": {"message": "bad key"}})
+        if self.fail:
+            return Resp(self.fail, {"error": {"message": "failing on purpose"}})
+        body = req.json
+        texts = body["input"]
+        self.inputs += texts
+        data = [{"object": "embedding", "index": i, "embedding": meaning_vector(t)} for i, t in enumerate(texts)]
+        return Resp(200, {"object": "list", "data": list(reversed(data)), "model": body["model"]})

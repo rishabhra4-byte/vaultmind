@@ -11,6 +11,7 @@ through `base_url`.
 import logging
 import threading
 import time
+from collections.abc import Iterator
 from typing import Protocol
 
 from .config import get_settings
@@ -32,6 +33,9 @@ REASONS = {
     "person_budget": "You've used today's AI answers, so this one was built from matching passages instead. "
     "It resets at midnight (UTC).",
 }
+
+
+CUT_SHORT = "\n\n(The answer was cut short. Ask a narrower question for the rest.)"
 
 
 class LLMError(Exception):
@@ -100,8 +104,34 @@ class AnthropicLLM:
         if not text:
             raise LLMError("bad_response", f"no text content (stop_reason={getattr(response, 'stop_reason', None)})")
         if getattr(response, "stop_reason", None) == "max_tokens":
-            text += "\n\n(The answer was cut short. Ask a narrower question for the rest.)"
+            text += CUT_SHORT
         return text
+
+    def stream(self, system: str, messages: list[dict], max_tokens: int = 1024) -> Iterator[str]:
+        """The answer as it's written, piece by piece. Failures raise LLMError, as complete() does."""
+        if time.monotonic() < self._disabled_until:
+            raise LLMError("auth", "skipped: key was rejected recently")
+        wrote = False
+        try:
+            with self._client.messages.stream(model=self.model, system=system, messages=messages, max_tokens=max_tokens) as s:
+                for text in s.text_stream:
+                    if text:
+                        wrote = True
+                        yield text
+                final = s.get_final_message()
+        except LLMError:
+            raise
+        except Exception as exc:
+            err = classify(exc)
+            if err.reason == "auth":
+                with self._lock:
+                    self._disabled_until = time.monotonic() + self.AUTH_COOLDOWN_SECONDS
+            log.warning("AI provider stream failed (%s): %s", err.reason, exc)
+            raise err from exc
+        if not wrote:
+            raise LLMError("bad_response", f"no text content (stop_reason={getattr(final, 'stop_reason', None)})")
+        if getattr(final, "stop_reason", None) == "max_tokens":
+            yield CUT_SHORT
 
 
 _override: LLM | None = None

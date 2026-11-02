@@ -2,7 +2,7 @@
 
     VAULTMIND_LIVE_ANTHROPIC_KEY=sk-ant-... pytest tests/test_live_anthropic.py -v
 
-Optionally set VAULTMIND_LLM_MODEL to check a different model. It makes four short requests.
+Optionally set VAULTMIND_LLM_MODEL to check a different model. It makes five short requests.
 Everything else in the suite uses a fake model or a fake server, so this is the only test that
 proves a real key, the configured model name and the real API work together.
 """
@@ -61,3 +61,21 @@ def test_an_intern_cannot_talk_claude_into_revealing_the_salary_sheet(client, lo
         assert figure not in reply["content"]
     assert all(c["title"] != "Salary Bands 2026" for c in reply["meta"]["citations"])
     assert any(lock["title"] == "Salary Bands 2026" for lock in reply["meta"]["locked"])
+
+
+def test_a_streamed_answer_arrives_in_pieces_and_is_kept_whole(client, login, live):
+    import json
+
+    r = client.post(
+        "/api/assistant/chat/stream", headers=login("priya"), json={"message": "How many days of earned leave do I get?"}
+    )
+    events = [
+        (lines["event"], json.loads(lines["data"]))
+        for block in r.text.strip().split("\n\n")
+        for lines in [dict(line.split(": ", 1) for line in block.splitlines())]
+    ]
+    deltas = [d["text"] for kind, d in events if kind == "delta"]
+    assert len(deltas) > 1, "the answer should arrive in more than one piece"
+    kind, done = events[-1]
+    assert kind == "done" and done["reply"]["meta"]["mode"] == "ai", done
+    assert "24" in done["reply"]["content"] and done["reply"]["meta"]["citations"]

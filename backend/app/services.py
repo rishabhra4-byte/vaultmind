@@ -96,21 +96,30 @@ def access_view(db: Session, user: User) -> AccessView:
 
 
 def index_document(doc: Document) -> None:
+    from . import embeddings
+
     index.add_document(doc.id, doc.title, doc.tags or [], [(c.id, c.text, c.ordinal) for c in doc.chunks])
     title_index.add_document(doc.id, "", [], [(doc.id, doc.title, 0)])
+    embeddings.forget_document(doc)  # new passages get vectors in the background
 
 
 def unindex_document(doc_id: int) -> None:
+    from . import embeddings
+
     index.remove_document(doc_id)
     title_index.remove_document(doc_id)
+    embeddings.vectors.keep_only(doc_id, set())
 
 
 def rebuild_index(db: Session) -> int:
+    from . import embeddings
+
     index.clear()
     title_index.clear()
     docs = db.scalars(select(Document).options(selectinload(Document.chunks))).all()
     for doc in docs:
         index_document(doc)
+    embeddings.load(db)
     return len(docs)
 
 

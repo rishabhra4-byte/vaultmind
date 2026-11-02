@@ -210,6 +210,14 @@ class RecommendationOut(BaseModel):
     reasons: list[str]
 
 
+class FeedbackIn(BaseModel):
+    """Whether an answer helped. `rating` None removes earlier feedback."""
+
+    rating: Literal["up", "down"] | None
+    reason: Literal["", "wrong", "missing", "source", "should_abstain", "other"] = ""
+    note: str = Field("", max_length=500)
+
+
 class ChatFilters(BaseModel):
     """Which documents a general question is answered from. Only ever narrows what the person
     may open; the same filters as the library's."""

@@ -10,7 +10,9 @@
 It builds a throwaway copy of the demo company (SQLite, demo data), asks every question as the
 person in the case, and scores the replies. Answers are built offline (no AI service), so the
 numbers are deterministic and need no API key; with --ai and VAULTMIND_ANTHROPIC_API_KEY set,
-the same checks run on the model's answers.
+the same checks run on the model's answers. With --embeddings and VAULTMIND_EMBEDDINGS_URL and
+VAULTMIND_EMBEDDINGS_MODEL set, search by meaning is on (every passage is embedded first);
+without it, search by meaning is off whatever the environment says.
 """
 
 import argparse
@@ -47,7 +49,7 @@ TRACKED = [
 TOLERANCE = 0.01
 
 
-def _setup_environment(ai: bool) -> Path:
+def _setup_environment(ai: bool, meaning: bool = False) -> Path:
     tmp = Path(tempfile.mkdtemp(prefix="vaultmind-eval-"))
     (tmp / "shared").mkdir()
     os.environ.update(
@@ -64,6 +66,8 @@ def _setup_environment(ai: bool) -> Path:
     )
     if not ai:
         os.environ["VAULTMIND_ANTHROPIC_API_KEY"] = ""
+    if not meaning:
+        os.environ["VAULTMIND_EMBEDDINGS_URL"] = ""
     return tmp
 
 
@@ -115,16 +119,16 @@ def abstained(reply) -> bool:
 # ---------------------------------------------------------------- the run
 
 
-def run(split: str | None, ai: bool) -> dict:
-    tmp = _setup_environment(ai)
+def run(split: str | None, ai: bool, meaning: bool = False) -> dict:
+    tmp = _setup_environment(ai, meaning)
     sys.path.insert(0, str(HERE.parent))
     try:
-        return _run(tmp, split, ai)
+        return _run(tmp, split, ai, meaning)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _run(tmp: Path, split: str | None, ai: bool) -> dict:
+def _run(tmp: Path, split: str | None, ai: bool, meaning: bool = False) -> dict:
     from sqlalchemy import select
 
     from app import assistant, retrieval
@@ -143,6 +147,20 @@ def _run(tmp: Path, split: str | None, ai: bool) -> dict:
         rebuild_index(db)
     if ai and get_llm() is None:
         raise SystemExit("--ai needs VAULTMIND_ANTHROPIC_API_KEY")
+    setup: dict = {"ai": ai, "meaning": None}
+    if meaning:
+        from app import embeddings
+        from app.config import get_settings
+
+        if not embeddings.enabled():
+            raise SystemExit("--embeddings needs VAULTMIND_EMBEDDINGS_URL and VAULTMIND_EMBEDDINGS_MODEL")
+        with SessionLocal() as db:
+            while embeddings.embed_pending(db):
+                pass
+            status = embeddings.status(db)
+        if status["with_vectors"] < status["passages"]:
+            raise SystemExit(f"Only {status['with_vectors']} of {status['passages']} passages could be embedded: see the log.")
+        setup["meaning"] = {"model": get_settings().embeddings_model, "passages": status["passages"]}
 
     results: list[dict] = []
     errors: list[str] = []
@@ -250,7 +268,14 @@ def _run(tmp: Path, split: str | None, ai: bool) -> dict:
             results.append(row)
 
     freshness = _freshness(tmp)
-    return {"summary": summarise(results), "by_tag": by_tag(results), "freshness": freshness, "errors": errors, "cases": results}
+    return {
+        "setup": setup,
+        "summary": summarise(results),
+        "by_tag": by_tag(results),
+        "freshness": freshness,
+        "errors": errors,
+        "cases": results,
+    }
 
 
 def _freshness(tmp: Path) -> dict:
@@ -356,7 +381,12 @@ def _fmt(v) -> str:
 
 def print_report(report: dict, label: str) -> None:
     s = report["summary"]
-    print(f"\nVaultMind answer-quality benchmark ({label}): {s['cases']} cases\n")
+    print(f"\nVaultMind answer-quality benchmark ({label}): {s['cases']} cases")
+    setup = report.get("setup") or {}
+    answers = "written by the AI service" if setup.get("ai") else "built offline"
+    meaning = setup.get("meaning")
+    words = f"words and meaning ({meaning['model']})" if meaning else "words only"
+    print(f"Answers {answers}; search by {words}\n")
     rows = [
         ("Recall@5", "recall_at_5"),
         ("MRR", "mrr"),
@@ -420,12 +450,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true", help="fail if worse than eval/baseline.json")
     parser.add_argument("--save-baseline", action="store_true")
     parser.add_argument("--ai", action="store_true", help="use the AI service (needs VAULTMIND_ANTHROPIC_API_KEY)")
+    parser.add_argument(
+        "--embeddings", action="store_true", help="search by meaning too (needs VAULTMIND_EMBEDDINGS_URL and _MODEL)"
+    )
     args = parser.parse_args(argv)
-    if (args.check or args.save_baseline) and (args.split or args.ai):
-        # The baseline is every case, offline: comparing one split, or AI answers, against it means nothing.
-        parser.error("--check and --save-baseline run over all cases, offline (no --split or --ai)")
+    if (args.check or args.save_baseline) and (args.split or args.ai or args.embeddings):
+        # The baseline is every case, offline, by words: comparing anything else against it means nothing.
+        parser.error("--check and --save-baseline run over all cases, offline (no --split, --ai or --embeddings)")
 
-    report = run(args.split, args.ai)
+    report = run(args.split, args.ai, args.embeddings)
     print_report(report, args.split or "all cases")
     if args.out:
         args.out.write_text(json.dumps(report, indent=1))

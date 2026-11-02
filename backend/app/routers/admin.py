@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import sso
+from .. import embeddings, sso
 from ..assistant import COMPANY
 from ..config import get_settings
 from ..database import get_db
@@ -125,8 +125,21 @@ def stats(_: User = Depends(admin_user), db: Session = Depends(get_db)):
     }
 
 
+@router.get("/admin/feedback")
+def answer_feedback(
+    rating: str | None = Query("down", pattern="^(up|down)$"),
+    days: int = Query(30, ge=1, le=365),
+    _: User = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
+    """Answers people marked helpful or not, without who marked them."""
+    from .. import feedback
+
+    return feedback.review(db, rating=rating, days=days)
+
+
 @router.get("/admin/operations")
-def operations(_: User = Depends(admin_user)):
+def operations(_: User = Depends(admin_user), db: Session = Depends(get_db)):
     """Backups and other operational checks, for the admin overview."""
     from pathlib import Path
 
@@ -145,6 +158,7 @@ def operations(_: User = Depends(admin_user)):
             "daily_limit": s.ai_daily_limit,
             "daily_limit_per_person": s.ai_daily_limit_per_person,
             "used_today": getattr(getattr(get_llm(), "budget", None), "used", None),
+            "meaning": embeddings.status(db),
         },
         "scanner": {
             "enabled": bool(s.clamav_address),

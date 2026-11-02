@@ -39,6 +39,7 @@ asking can open the document anyway.
 | Summary at upload or sync | The title and the first 12,000 characters, masked, if the document may be read by the AI | Anything, for documents kept from the AI: their summary is their own first sentences |
 | "What changed" in a new version | The changed, added and removed sentences, masked, if the document may be read by the AI | Anything, for documents kept from the AI: the change is described from the comparison alone |
 | Ask about one document, compare two, draft a message | Passages of those documents (masked), if each may be read by the AI | The same as above |
+| Search by meaning, if turned on (`VAULTMIND_EMBEDDINGS_URL`), to the embedding service | In the background: each passage (masked, with its document's title) of documents the AI may read. With each search: the question (masked) | Documents kept from the AI, restricted documents (by default), and anything about who is asking. Turning AI reading off for a document or source also deletes its vectors |
 
 Each request to the AI service is limited in length and time (`VAULTMIND_LLM_TIMEOUT_SECONDS`),
 and the model is told that document text is data, not instructions.
@@ -48,6 +49,10 @@ and the model is told that document text is data, not instructions.
 - **In VaultMind:** questions and answers are stored in the person's conversation history (they
   can delete conversations), and each question is recorded in the activity log. The insights
   page shows administrators what people ask, without who asked.
+- **The embedding service** (only with search by meaning on) is whatever you point
+  `VAULTMIND_EMBEDDINGS_URL` at. Run it inside the company (Ollama, Hugging Face
+  text-embeddings-inference) and passages never leave it; with a hosted one, its terms apply as
+  below. The vectors are stored in VaultMind's database, deleted with their passage.
 - **At the AI provider:** what Anthropic keeps, for how long and for what is set by your agreement
   with them, not by VaultMind. Check their commercial terms and data processing agreement, and
   whether your account has the retention options you need, before turning AI on for real
@@ -58,6 +63,7 @@ and the model is told that document text is data, not instructions.
 | Control | Where |
 |---|---|
 | Turn AI off entirely | Remove `VAULTMIND_ANTHROPIC_API_KEY` |
+| Search by meaning, and where it runs | `VAULTMIND_EMBEDDINGS_URL` and `VAULTMIND_EMBEDDINGS_MODEL` (off when empty; shown on **Admin → Overview → AI**) |
 | Which model | `VAULTMIND_LLM_MODEL` (default `claude-sonnet-5-5`; `claude-haiku-5-5` costs a fraction) |
 | Daily limits on AI use, company-wide and per person | `VAULTMIND_AI_DAILY_LIMIT`, `VAULTMIND_AI_DAILY_LIMIT_PER_PERSON` (past them, answers are built offline and say why) |
 | Highest classification that may be sent | `VAULTMIND_AI_MAX_CLASSIFICATION` (shown on **Admin → Overview**) |
@@ -80,6 +86,9 @@ answers to people who can open it, and the answer says why the AI didn't read it
 | Documents with AI reading off never reach the model | `test_documents_with_ai_reading_off_never_reach_the_model` |
 | Identity numbers and secrets are masked in answers | `test_identity_numbers_and_secrets_are_masked_before_the_model_sees_them` |
 | Rephrasing a weak search sends only the question | `test_weak_searches_are_rephrased_by_the_model_without_sending_documents` |
+| Search by meaning sends only passages the AI may read, masked; questions are masked too | `test_only_what_the_ai_may_read_is_sent_and_secrets_are_masked` |
+| Turning AI reading off for a document drops its vectors at once | `test_turning_ai_off_for_a_document_drops_its_vectors` |
+| Search by meaning never brings in a document the person can't open | `test_meaning_never_reaches_documents_the_person_cannot_open` |
 | Nothing the person can't open is sent or leaked | The answer-quality benchmark's leak check over 229 questions: 0 leaks (`python -m eval.run`) |
 
 These tests use a stand-in for the AI service that records everything it receives. A run

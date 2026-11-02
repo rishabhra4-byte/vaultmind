@@ -50,7 +50,13 @@ function Figure({ icon, label, children }: { icon: ReactNode; label: string; chi
 const STATUS: Record<string, string> = { ok: "Synced", error: "Failing", syncing: "Syncing", idle: "Not synced yet" };
 
 interface Operations {
-  ai: { max_classification: Classification; daily_limit: number; daily_limit_per_person: number; used_today: number | null };
+  ai: {
+    max_classification: Classification;
+    daily_limit: number;
+    daily_limit_per_person: number;
+    used_today: number | null;
+    meaning: { enabled: false } | { enabled: true; model: string; passages: number; with_vectors: number };
+  };
   scanner: { enabled: boolean; reachable: boolean; required: boolean };
   backups: {
     enabled: boolean;
@@ -58,6 +64,56 @@ interface Operations {
     keep: number;
     recent: { name: string; created_at: string; size: number; verified: boolean | null; checks: { name: string; ok: boolean; detail: string }[] }[];
   };
+}
+
+interface FeedbackReview {
+  counts: { up: number; down: number };
+  days: number;
+  items: {
+    id: number;
+    reason_label: string;
+    note: string;
+    question: string;
+    answer: string;
+    mode: string;
+    enough: boolean | null;
+    cited: { id: number; title: string }[];
+    at: string;
+  }[];
+}
+
+/** Answers people marked unhelpful (without who), to fix documents or add to the benchmark. */
+function FeedbackPanel({ review }: { review: FeedbackReview | null }) {
+  return (
+    <section className="panel feedback-panel">
+      <h3>Answers marked unhelpful</h3>
+      {!review ? (
+        <p className="muted small">Loading…</p>
+      ) : (
+        <>
+          <p className="muted small">
+            {review.counts.up} helpful, {review.counts.down} not helpful in the last {review.days} days.
+            {review.counts.down > 0 && " Export them for the benchmark with python -m app.cli export-feedback."}
+          </p>
+          {review.items.length > 0 && (
+            <ul className="plain">
+              {review.items.slice(0, 6).map((f) => (
+                <li key={f.id}>
+                  <strong>“{f.question}”</strong>
+                  <span className="muted small">
+                    {" "}
+                    {f.reason_label || "No reason given"}
+                    {f.note && `: “${f.note}”`}. {f.mode === "ai" ? "AI answer" : "Offline answer"}
+                    {f.cited.length > 0 && ` from ${f.cited.map((c) => c.title).join(", ")}`}, {timeAgo(f.at)}.
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
 }
 
 /** Whether uploads and synced files are scanned, and whether the scanner answers. */
@@ -116,6 +172,7 @@ export default function Overview() {
   const [days, setDays] = useState(30);
   const [barsReady, setBarsReady] = useState(false);
   const [ops, setOps] = useState<Operations | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackReview | null>(null);
 
   useEffect(() => {
     api<Stats>("/api/admin/stats")
@@ -131,6 +188,17 @@ export default function Overview() {
       .then(setOps)
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    let current = true;
+    setFeedback(null);
+    api<FeedbackReview>(`/api/admin/feedback?days=${days}`)
+      .then((f) => current && setFeedback(f))
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [days]);
 
   useEffect(() => {
     let current = true; // switching periods quickly: only the last one's figures are shown
@@ -269,6 +337,7 @@ export default function Overview() {
                 </>
               )}
             </section>
+            <FeedbackPanel review={feedback} />
             <section className="panel">
               <h3>Possibly out of date</h3>
               {insights.stale_documents.length === 0 ? (
@@ -331,6 +400,13 @@ export default function Overview() {
                   </>
                 )}
               </p>
+              {ops?.ai.meaning.enabled && (
+                <p className="muted small">
+                  Search by meaning is on ({ops.ai.meaning.model}): {ops.ai.meaning.with_vectors} of {ops.ai.meaning.passages}{" "}
+                  passages the AI may read are ready
+                  {ops.ai.meaning.with_vectors < ops.ai.meaning.passages ? "; the rest are found by their words until then." : "."}
+                </p>
+              )}
               <h3>Backups</h3>
               <BackupStatus ops={ops} />
               <h3>Malware scanning</h3>

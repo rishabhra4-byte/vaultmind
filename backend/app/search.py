@@ -152,6 +152,13 @@ class BM25Index:
 
     # ---------------------------------------------------------------- vocabulary
 
+    def passage(self, chunk_id: int) -> tuple[int, str, int] | None:
+        """(document id, text, position) of an indexed passage."""
+        with self._lock:
+            if chunk_id not in self._chunk_doc:
+                return None
+            return self._chunk_doc[chunk_id], self._chunk_text[chunk_id], self._chunk_ordinal.get(chunk_id, 0)
+
     def idf(self, term: str) -> float:
         """How rare a term is; terms nobody uses get the highest value."""
         with self._lock:
