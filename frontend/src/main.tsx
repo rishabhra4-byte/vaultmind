@@ -1,6 +1,5 @@
-import "@fontsource-variable/plus-jakarta-sans";
-import "@fontsource/source-serif-4/400.css";
-import "@fontsource/source-serif-4/600.css";
+import "@fontsource-variable/inter";
+import "@fontsource-variable/jetbrains-mono";
 import { StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
