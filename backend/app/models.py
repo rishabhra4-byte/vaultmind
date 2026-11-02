@@ -23,7 +23,19 @@ AuditEvent                          append-only activity log
 from datetime import UTC, datetime
 from enum import IntEnum, StrEnum
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -338,6 +350,19 @@ class DocumentChunk(Base):
     text: Mapped[str] = mapped_column(Text)
 
     document: Mapped[Document] = relationship(back_populates="chunks")
+
+
+class ChunkEmbedding(Base):
+    """A passage's vector for search by meaning (app/embeddings.py), from the configured model.
+    Deleted with the passage; replaced when the model changes."""
+
+    __tablename__ = "chunk_embeddings"
+
+    chunk_id: Mapped[int] = mapped_column(ForeignKey("document_chunks.id", ondelete="CASCADE"), primary_key=True)
+    model: Mapped[str] = mapped_column(String(200))
+    dims: Mapped[int] = mapped_column(Integer)
+    vector: Mapped[bytes] = mapped_column(LargeBinary)  # float32, unit length
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class AccessGrant(Base):

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import audit
+from .. import audit, embeddings
 from ..connectors import ConnectorError, build_connector
 from ..connectors.folder import allowed_roots
 from ..database import get_db
@@ -120,6 +120,9 @@ def update_source(source_id: int, body: SourceUpdate, admin: User = Depends(admi
     audit.record(db, admin, "source.update", "source", source.id, name=source.name, changes=sorted(changes))
     db.commit()
     db.refresh(source)
+    if "ai_enabled" in changes:
+        for doc in db.scalars(select(Document).where(Document.source_id == source.id)):
+            embeddings.forget_document(doc)
     return _out(db, source)
 
 

@@ -500,7 +500,7 @@ was saved with them.
 | H-D3 | **A real Prometheus** scraping a running install | No Prometheus here | Scrape config in [operations.md](operations.md#monitoring); trigger `VaultMindBackupCheckFailed` by corrupting a test backup |
 | H-D4 | **The new prompts with the real Claude API** | Same as D1; tested with a recording stand-in | Run `tests/test_live_anthropic.py`, then ask the "things to try" questions in the README |
 | H-D5 | **Answer quality in AI mode** | The benchmark ran offline; `python -m eval.run --ai` needs a key | Run it with a key and compare with the offline numbers |
-| H-D6 | **Embeddings** | Not built: no model could be run here to measure them | [Roadmap](roadmap.md) item 2 |
+| H-D6 | **Embeddings** | *Built on 2 November, off by default* ([I](#i-better-answers-feedback-streaming-more-file-types-search-by-meaning-2-november-2026)); a real model is still to be measured (I-D2) | `python -m eval.run --embeddings` |
 | H-D7 | **Restoring a large install** | Tested with the demo company | Time a restore of a copy of the pilot's data |
 
 ### H5. CI
@@ -514,3 +514,64 @@ Pull request #3 (commit `612b445`), GitHub Actions run 41229125094: **all seven 
 | frontend | pass | |
 | e2e (chromium), e2e (firefox), e2e (webkit) | pass, 342 s, 359 s, 450 s | 447 checks each, including the new evidence, filter and session checks |
 | docker runtime | pass, 351 s | `promtool check rules` on the alert rules; a backup made in the production container passed its restore check and was restored into a new PostgreSQL database with matching row counts |
+
+---
+
+## I. Better answers: feedback, streaming, more file types, search by meaning (2 November 2026)
+
+### I1. What was added
+
+- **Feedback on answers**: helpful or not, with a reason and a note. Admins see the unhelpful
+  ones without who marked them; `python -m app.cli export-feedback` writes them as draft
+  benchmark cases; `vaultmind_answer_feedback_total` counts them.
+- **Streamed answers**: AI answers appear as they're written (server-sent events on
+  `/api/assistant/chat/stream`); *Stop* cancels. Offline answers arrive whole.
+- **Better abstaining in AI mode**: an AI answer that says it couldn't find enough evidence is
+  recorded as not enough evidence, like an offline one.
+- **Excel and PowerPoint**: every sheet, each row with its column labels; slides with titles,
+  tables and speaker notes. Google Sheets now arrive with every tab (exported as Excel, not
+  CSV) and Slides with speaker notes; SharePoint `.xlsx`/`.pptx` are read directly instead of
+  converted to PDF. Scanned PDFs and old `.doc`/`.xls`/`.ppt` files get plain explanations.
+- **Search by meaning**, optional and off by default ([operations](operations.md#search-by-meaning-optional)).
+- **"Answer quality with AI"**: a manual workflow that runs the benchmark with real Claude answers
+  (and search by meaning) using repository secrets.
+
+### I2. Risks, and how they're handled
+
+| # | Risk | How it's handled | Proven by |
+|---|---|---|---|
+| I-S1 | A streamed answer shows a citation the model wasn't given | The streamed text is a preview with citation markers hidden; when it ends, the checked answer replaces it | `test_an_ai_answer_arrives_piece_by_piece_then_whole` |
+| I-S2 | The model fails halfway through an answer | The person gets an offline answer saying why, as for any failure | `test_a_model_failing_midway_falls_back_to_an_offline_answer`; real SDK streaming against a stand-in API in `test_llm_provider.py` |
+| I-S3 | Feedback reveals who disliked which answer | The admin list has no names; feedback is deleted with its conversation | `test_feedback.py` |
+| I-S4 | Hostile Excel or PowerPoint files | Each XML part and the whole file are size-capped; XML with a document type declaration is refused; damaged and password-protected files get a plain refusal | `test_zip_bombs_are_refused`, `test_xml_entity_attacks_are_refused`, `test_damaged_and_password_protected_files_are_refused_plainly` |
+| I-S5 | Search by meaning sends text the AI data policy forbids | Only passages of documents the AI may read, masked; questions masked; turning AI off for a document or source drops its vectors at once | `test_only_what_the_ai_may_read_is_sent_and_secrets_are_masked`, `test_turning_ai_off_for_a_document_drops_its_vectors` |
+| I-S6 | Search by meaning brings in documents the person can't open | It searches only the documents the person may open, after the permission check | `test_meaning_never_reaches_documents_the_person_cannot_open` |
+| I-S7 | A poor embedding model makes answers worse | Off by default. Its weight shrinks as the question's words match better, and whether there's enough evidence to answer is still decided on the words. A stand-in "model" that knows only four groups of words left answer accuracy on the dev split unchanged (0.905 either way); MRR went from 0.986 to 0.976, and abstaining when nothing answers from 0.870 to 0.913 | `test_offline_answers_still_need_the_words`; the stand-in benchmark run below |
+| I-S8 | The embedding service is down or slow | Searches use words alone (8-second limit per question); uploads never wait for it; failures are counted | `test_when_the_service_fails_search_uses_words_alone`, `test_a_failing_service_doesnt_stop_uploads` |
+
+### I3. Tests run and their results (2 November)
+
+| What | Result |
+|---|---|
+| Backend tests, SQLite | **279 passed**, 4 skipped (the live Claude checks, which need a key) |
+| Backend tests, PostgreSQL 16 | **279 passed**, 4 skipped. One warning: a background sync started by one test was still running when the next test reset the database (a race in the test, present before this round). The test now waits for it; the connector tests were rerun on PostgreSQL with that warning made an error: 18 passed |
+| Answer-quality benchmark, `--check` | **No regressions** (229 cases, offline, words only): Recall@5 0.997, answer accuracy 0.911, citation precision 0.945, conflicts found 0.917, permission leaks 0 |
+| Browser audit (Chromium, local) | **452 of 452 checks passed**, 0 console or network problems. New: feedback, an old Office file in the upload dialog, a spreadsheet uploaded and read sheet by sheet |
+| Streaming in a real browser | Against a local stand-in for the Anthropic API sending a word every 0.25 s: the answer grew from 5 to 105 characters over about 5 seconds with *Stop* showing, then became the checked answer with its source card, feedback buttons and "Written by Claude" label. This tests the plumbing, not Claude |
+| Excel and PowerPoint | Files saved by openpyxl, python-pptx and LibreOffice (the libraries are not dependencies; the files are test inputs), plus hand-built edge cases: 16 tests |
+| Search by meaning | 14 tests against a stand-in embedding service; `python -m eval.run --embeddings --split dev` ran end to end against it (every passage embedded, 0 leaks). Its numbers say nothing about quality |
+
+Found and fixed along the way: removing a citation the model wasn't given left a space before the
+full stop ("a year ."); Chromium sometimes reports a fully read streamed response as
+"aborted" (the page reads to the end, and the audit ignores only that exact case); Word files
+showed `&amp;` for "&".
+
+### I4. Still unverified
+
+| # | Item | Why | How to finish it |
+|---|---|---|---|
+| I-D1 | **Streaming from the real Claude API** | No API key here | `VAULTMIND_LIVE_ANTHROPIC_KEY=sk-ant-… pytest tests/test_live_anthropic.py -v` (now five checks, including a streamed answer) |
+| I-D2 | **Search by meaning with a real model** | No embedding model could be reached or run here | `python -m eval.run --embeddings` with your service, or the workflow with "embeddings" ticked; compare with a run without it before turning it on for everyone |
+| I-D3 | **Office files from Microsoft Office itself**, and Google's Excel/PowerPoint export through the real Drive API | Tested with files from other tools and a stand-in Drive | Upload a few real company spreadsheets and decks; sync a Drive folder holding a Sheet with several tabs |
+| I-D4 | **Answer quality in AI mode** | Same as H-D5 | The *Answer quality with AI* workflow |
+

@@ -72,6 +72,14 @@ class Settings(BaseSettings):
     ai_daily_limit: int = Field(0, ge=0)
     ai_daily_limit_per_person: int = Field(0, ge=0)
     retrieval_top_k: int = 6
+    # Optional search by meaning (app/embeddings.py): an OpenAI-style embeddings service, e.g.
+    # http://ollama:11434/v1 (inside the company) or https://api.voyageai.com/v1. Off when empty.
+    embeddings_url: str = ""
+    embeddings_model: str = ""
+    embeddings_api_key: str = ""
+    # Some models want questions and passages marked, e.g. "search_query: " / "search_document: ".
+    embeddings_query_prefix: str = ""
+    embeddings_document_prefix: str = ""
 
     # None = follow the environment: on in development, off in production.
     seed_demo_data: bool | None = None

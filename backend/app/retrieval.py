@@ -14,7 +14,8 @@ The steps:
 2. Retrieve candidates with BM25 over those words (each weighted: typed words count most).
 3. Rerank the candidate passages: how much of the question they cover (rare words count
    more), how close together the matching words are, whether the title matches, and
-   whether the document is old.
+   whether the document is old. With search by meaning on (app/embeddings.py), passages
+   that mean what the question asks join the candidates and score for it too.
 4. Pick the sentences that carry the answer, and decide whether the evidence is good enough
    to answer at all. If it isn't, the assistant says so instead of guessing.
 """
@@ -41,6 +42,13 @@ W_PROXIMITY = 0.20
 W_TITLE = 0.10
 OLD_PENALTY = 0.08
 SECOND_CHUNK = 0.15
+# Search by meaning, when on: the closest passage scores up to W_SEMANTIC, the 30th closest 0.
+# Words are trusted when they match and meaning when they don't: the weight shrinks as the best
+# passage covers more of the question's words, so a question a passage answers word for word
+# ranks as before. NOT tuned: no embedding model could be run where this was written. Measure
+# with yours before relying on it (python -m eval.run --embeddings).
+W_SEMANTIC = 0.6
+SEMANTIC_CHUNKS = 30
 
 # Evidence: the best sentence must cover this share of what the question is about.
 ENOUGH_COVERAGE = 0.45
@@ -107,11 +115,12 @@ class Ranking:
     enough: bool = False  # whether the best evidence covers the question well enough to answer
     coverage: float = 0.0  # how well the best evidence covers the question
     scores: dict[int, float] = field(default_factory=dict)  # final document scores
+    by_meaning: bool = False  # whether search by meaning took part
 
     @property
     def info(self) -> dict:
         """What the search did, for the reply's metadata (shown under the answer)."""
-        out: dict = {}
+        out: dict = {"meaning": True} if self.by_meaning else {}
         if self.expanded:
             out["expanded"] = self.expanded
         if self.corrections:
@@ -407,18 +416,25 @@ def rank(
         return Ranking([], query, expanded, corrections, acronyms, concepts)
 
     found = index.search_terms(weights, allowed_doc_ids=allowed, top_k=max(candidates, top_k), chunks_per_doc=3)
+    semantic = _by_meaning(question, allowed)
+    if semantic:
+        _add_by_meaning(found, semantic)
     if not found:
         return Ranking([], query, expanded, corrections, acronyms, concepts)
     max_bm25 = max(c.score for d in found for c in d.chunks)
 
-    rescored: list[tuple[float, DocHit]] = []
+    lexical: list[tuple[DocHit, list[tuple[float, float, ChunkHit]]]] = []
     for d in found:
         doc = view.docs[d.doc_id]
         title_terms = set(tokenize(" ".join([doc.title, *(doc.tags or [])])))
-        scored = []
-        for c in d.chunks:
-            score, _ = _rerank_chunk(c, concepts, max_bm25, title_terms)
-            scored.append((score, c))
+        lexical.append((d, [(*_rerank_chunk(c, concepts, max_bm25, title_terms), c) for c in d.chunks]))
+    best_coverage = max((cov for _, chunks in lexical for _, cov, _ in chunks), default=0.0)
+    w_meaning = W_SEMANTIC * max(0.0, 1.0 - best_coverage)
+
+    rescored: list[tuple[float, DocHit]] = []
+    for d, chunks in lexical:
+        doc = view.docs[d.doc_id]
+        scored = [(score + w_meaning * semantic.get(c.chunk_id, 0.0), c) for score, _, c in chunks]
         scored.sort(key=lambda x: x[0], reverse=True)
         doc_score = scored[0][0] + SECOND_CHUNK * (scored[1][0] if len(scored) > 1 else 0)
         if is_old(doc) and not _asks_for_old(question, doc):
@@ -429,6 +445,14 @@ def rank(
         rescored.append((doc_score, DocHit(d.doc_id, round(doc_score, 4), chunks)))
     rescored.sort(key=lambda x: x[0], reverse=True)
     hits = [h for _, h in rescored[:top_k]]
+    if semantic and top_k > 1:
+        # The passage closest in meaning is always among the results (the AI reads them all),
+        # even when passages sharing more of the question's words outrank it.
+        closest = index.passage(next(iter(semantic)))
+        if closest and closest[0] not in {h.doc_id for h in hits}:
+            extra = next((h for _, h in rescored if h.doc_id == closest[0]), None)
+            if extra is not None:
+                hits = hits[: top_k - 1] + [extra]
 
     evidence: dict[int, Evidence] = {}
     for h in hits[:6]:
@@ -449,4 +473,36 @@ def rank(
         enough,
         round(coverage, 3),
         {h.doc_id: h.score for h in hits},
+        bool(semantic),
     )
+
+
+def _by_meaning(question: str, allowed: set[int]) -> dict[int, float]:
+    """Passage id -> how close it is in meaning, 1 for the closest of the 30 closest and 0 for the
+    30th; empty when search by meaning is off or unavailable."""
+    from . import embeddings
+
+    if not embeddings.enabled():
+        return {}
+    found = embeddings.search(question, allowed, SEMANTIC_CHUNKS)
+    if not found:
+        return {}
+    top, low = found[0][2], found[-1][2]
+    spread = top - low
+    return {cid: 1.0 if spread <= 1e-9 else (sim - low) / spread for cid, _doc, sim in found}
+
+
+def _add_by_meaning(found: list[DocHit], semantic: dict[int, float]) -> None:
+    """Add the passages found by meaning to the candidates, as passages no word matched."""
+    by_doc = {d.doc_id: d for d in found}
+    for cid in semantic:
+        passage = index.passage(cid)
+        if passage is None:
+            continue
+        doc_id, text, ordinal = passage
+        hit = by_doc.get(doc_id)
+        if hit is None:
+            hit = by_doc[doc_id] = DocHit(doc_id, 0.0, [])
+            found.append(hit)
+        if all(c.chunk_id != cid for c in hit.chunks):
+            hit.chunks.append(ChunkHit(cid, doc_id, 0.0, text, ordinal, set()))

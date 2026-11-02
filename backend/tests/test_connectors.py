@@ -2,6 +2,7 @@
 
 import json
 import os
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -494,6 +495,10 @@ def test_a_sync_already_running_is_not_started_twice(client, login, share):
     finally:
         lock.release()
     assert client.post(f"/api/admin/sources/{source_id}/sync", headers=login("dev")).status_code == 202
+    # Let that background sync finish before the next test resets the database under it.
+    for t in threading.enumerate():
+        if t.name == f"sync-{source_id}":
+            t.join(timeout=30)
 
 
 def test_position_from_title():

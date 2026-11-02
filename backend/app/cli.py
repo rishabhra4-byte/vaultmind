@@ -183,7 +183,24 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--all", action="store_true", help="helpful answers too")
     p.add_argument("--days", type=int, default=365)
 
+    sub.add_parser("embed", help="compute every missing vector for search by meaning (VAULTMIND_EMBEDDINGS_URL)")
+
     args = parser.parse_args(argv)
+    if args.command == "embed":
+        from . import embeddings
+
+        if not embeddings.enabled():
+            print("Search by meaning is off: set VAULTMIND_EMBEDDINGS_URL and VAULTMIND_EMBEDDINGS_MODEL.", file=sys.stderr)
+            return 1
+        upgrade_database()
+        total = 0
+        with SessionLocal() as db:
+            while n := embeddings.embed_pending(db):
+                total += n
+                print(f"{total} passages embedded...")
+            left = embeddings.status(db)
+        print(f"Done: {left['with_vectors']} of {left['passages']} passages the AI may read have vectors.")
+        return 0 if left["with_vectors"] >= left["passages"] else 1
     if args.command in ("backup", "verify-backup", "restore"):
         return _backup_command(args)
     if args.command == "export-feedback":

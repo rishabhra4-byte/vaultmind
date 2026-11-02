@@ -4,6 +4,10 @@
 #
 # Run it from the Actions tab: "Answer quality with AI" -> Run workflow. The held-out split is
 # 85 questions; with Claude Haiku 5.5 a run costs a few US cents.
+#
+# To measure search by meaning as well, tick "embeddings" and add the repository secrets
+# VAULTMIND_EMBEDDINGS_URL (e.g. https://api.voyageai.com/v1), VAULTMIND_EMBEDDINGS_MODEL
+# (e.g. voyage-3.5-lite) and VAULTMIND_EMBEDDINGS_API_KEY.
 name: Answer quality with AI
 
 on:
@@ -18,6 +22,10 @@ on:
         description: Claude model
         type: string
         default: claude-haiku-5-5
+      embeddings:
+        description: Search by meaning too (needs the VAULTMIND_EMBEDDINGS_* secrets)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -40,25 +48,37 @@ jobs:
       - name: The API key is set
         env:
           KEY: ${{ secrets.VAULTMIND_ANTHROPIC_API_KEY }}
+          EMB_URL: ${{ secrets.VAULTMIND_EMBEDDINGS_URL }}
+          EMB_MODEL: ${{ secrets.VAULTMIND_EMBEDDINGS_MODEL }}
+          EMBEDDINGS: ${{ inputs.embeddings }}
         run: |
           if [ -z "$KEY" ]; then
             echo "::error title=No API key::Add the repository secret VAULTMIND_ANTHROPIC_API_KEY (Settings > Secrets and variables > Actions), then run this again."
+            exit 1
+          fi
+          if [ "$EMBEDDINGS" = "true" ] && { [ -z "$EMB_URL" ] || [ -z "$EMB_MODEL" ]; }; then
+            echo "::error title=No embedding service::Add the repository secrets VAULTMIND_EMBEDDINGS_URL and VAULTMIND_EMBEDDINGS_MODEL (and _API_KEY if it needs one), then run this again."
             exit 1
           fi
       - name: Benchmark with AI answers
         env:
           VAULTMIND_ANTHROPIC_API_KEY: ${{ secrets.VAULTMIND_ANTHROPIC_API_KEY }}
           VAULTMIND_LLM_MODEL: ${{ inputs.model }}
+          VAULTMIND_EMBEDDINGS_URL: ${{ secrets.VAULTMIND_EMBEDDINGS_URL }}
+          VAULTMIND_EMBEDDINGS_MODEL: ${{ secrets.VAULTMIND_EMBEDDINGS_MODEL }}
+          VAULTMIND_EMBEDDINGS_API_KEY: ${{ secrets.VAULTMIND_EMBEDDINGS_API_KEY }}
           SPLIT: ${{ inputs.split }}
+          EMBEDDINGS: ${{ inputs.embeddings }}
         run: |
           args="--ai --out ai-report.json"
           if [ "$SPLIT" != "all" ]; then args="$args --split $SPLIT"; fi
+          if [ "$EMBEDDINGS" = "true" ]; then args="$args --embeddings"; fi
           python -m eval.run $args | tee ai-summary.txt
       - name: Results on the run's page
         if: always()
         run: |
           {
-            echo "### Answer quality with AI (${{ inputs.model }}, ${{ inputs.split }} split)"
+            echo "### Answer quality with AI (${{ inputs.model }}, ${{ inputs.split }} split, search by meaning: ${{ inputs.embeddings }})"
             echo
             echo '```'
             cat ai-summary.txt 2>/dev/null || echo "No results: see the log above."

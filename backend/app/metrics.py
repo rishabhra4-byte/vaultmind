@@ -129,6 +129,11 @@ for _name, _kind, _help in (
     ("vaultmind_syncs_total", "counter", "Source syncs by result."),
     ("vaultmind_backups_total", "counter", "Scheduled backups by result (verified, check_failed, failed)."),
     ("vaultmind_answer_feedback_total", "counter", "Answers people marked helpful (up) or not (down), by mode."),
+    (
+        "vaultmind_embedding_failures_total",
+        "counter",
+        "Failed calls to the embedding service, by reason and stage (question, passages).",
+    ),
 ):
     registry.describe(_name, _kind, _help)
 
@@ -171,6 +176,7 @@ def gauges() -> list[tuple[str, str, dict[str, str], float]]:
     from . import backup, malware
     from .config import get_settings
     from .database import SessionLocal
+    from .embeddings import vectors
     from .models import Document, Source, User, UserSession
     from .search import index
 
@@ -179,6 +185,7 @@ def gauges() -> list[tuple[str, str, dict[str, str], float]]:
         ("vaultmind_start_time_seconds", "When this process started (Unix time).", {}, STARTED),
         ("vaultmind_search_index_documents", "Documents in the in-memory search index.", {}, float(len(index))),
         ("vaultmind_ai_configured", "1 when an AI service is configured.", {}, float(bool(s.anthropic_api_key))),
+        ("vaultmind_embedding_vectors", "Passages with a vector for search by meaning (in memory).", {}, float(len(vectors))),
     ]
     try:
         with SessionLocal() as db:

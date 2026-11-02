@@ -50,7 +50,13 @@ function Figure({ icon, label, children }: { icon: ReactNode; label: string; chi
 const STATUS: Record<string, string> = { ok: "Synced", error: "Failing", syncing: "Syncing", idle: "Not synced yet" };
 
 interface Operations {
-  ai: { max_classification: Classification; daily_limit: number; daily_limit_per_person: number; used_today: number | null };
+  ai: {
+    max_classification: Classification;
+    daily_limit: number;
+    daily_limit_per_person: number;
+    used_today: number | null;
+    meaning: { enabled: false } | { enabled: true; model: string; passages: number; with_vectors: number };
+  };
   scanner: { enabled: boolean; reachable: boolean; required: boolean };
   backups: {
     enabled: boolean;
@@ -394,6 +400,13 @@ export default function Overview() {
                   </>
                 )}
               </p>
+              {ops?.ai.meaning.enabled && (
+                <p className="muted small">
+                  Search by meaning is on ({ops.ai.meaning.model}): {ops.ai.meaning.with_vectors} of {ops.ai.meaning.passages}{" "}
+                  passages the AI may read are ready
+                  {ops.ai.meaning.with_vectors < ops.ai.meaning.passages ? "; the rest are found by their words until then." : "."}
+                </p>
+              )}
               <h3>Backups</h3>
               <BackupStatus ops={ops} />
               <h3>Malware scanning</h3>

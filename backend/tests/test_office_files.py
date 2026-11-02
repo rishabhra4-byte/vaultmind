@@ -192,3 +192,10 @@ def test_a_scanned_pdf_gets_a_clear_message(client, login):
     w.write(buf)
     r = _upload(client, login("rohan"), "scan.pdf", buf.getvalue())
     assert r.status_code == 415 and "probably scanned" in r.json()["detail"]
+
+
+def test_word_files_show_ampersands_and_angle_brackets_as_written():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("word/document.xml", "<w:document><w:p><w:r><w:t>R&amp;D budget &lt;draft&gt;</w:t></w:r></w:p></w:document>")
+    assert extract_text("x.docx", buf.getvalue()) == "R&D budget <draft>"

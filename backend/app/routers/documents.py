@@ -4,7 +4,7 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import audit, malware, metrics, retrieval, storage
+from .. import audit, embeddings, malware, metrics, retrieval, storage
 from ..config import get_settings
 from ..database import get_db
 from ..deps import current_user
@@ -459,6 +459,8 @@ def update_document(doc_id: int, body: DocumentUpdate, user: User = Depends(curr
     db.refresh(doc)
     if {"title", "tags"} & changes.keys():
         index_document(doc)
+    elif {"ai_enabled", "classification"} & changes.keys():
+        embeddings.forget_document(doc)  # out of search by meaning at once if the AI may no longer read it
     return document_out(doc, viewer(db, user), _pending_ids(db, user))
 
 
