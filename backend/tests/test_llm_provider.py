@@ -35,6 +35,10 @@ class FakeAnthropic:
                     {"path": self.path, "headers": {k.lower(): v for k, v in self.headers.items()}, "body": body}
                 )
                 mode = fake.mode
+                if body.get("stream") and mode in ("ok", "truncated"):
+                    return self._sse(
+                        ["Leave is ", "24 days ", "a year [D1]."], "max_tokens" if mode == "truncated" else "end_turn"
+                    )
                 if mode == "slow":
                     time.sleep(2)
                     return self._json(200, _message("late"))
@@ -53,6 +57,39 @@ class FakeAnthropic:
                 }
                 status, kind, message = errors[mode]
                 self._json(status, {"type": "error", "error": {"type": kind, "message": message}}, retry_after="0")
+
+            def _sse(self, pieces, stop_reason):
+                """A streamed answer, in the Messages API's server-sent events format."""
+                events = [
+                    ("message_start", {"type": "message_start", "message": {**_message(""), "stop_reason": None}}),
+                    (
+                        "content_block_start",
+                        {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+                    ),
+                    *(
+                        (
+                            "content_block_delta",
+                            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": t}},
+                        )
+                        for t in pieces
+                    ),
+                    ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+                    (
+                        "message_delta",
+                        {
+                            "type": "message_delta",
+                            "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+                            "usage": {"output_tokens": 9},
+                        },
+                    ),
+                    ("message_stop", {"type": "message_stop"}),
+                ]
+                self.send_response(200)
+                self.send_header("content-type", "text/event-stream")
+                self.end_headers()
+                for name, data in events:
+                    self.wfile.write(f"event: {name}\ndata: {json.dumps(data)}\n\n".encode())
+                    self.wfile.flush()
 
             def _json(self, status, payload, retry_after=None):
                 data = json.dumps(payload).encode()
@@ -170,3 +207,36 @@ def test_empty_and_truncated_responses(fake):
     assert exc.value.reason == "bad_response"
     fake.mode = "truncated"
     assert "cut short" in c.complete("s", [{"role": "user", "content": "hi"}])
+
+
+# ---------------------------------------------------------------- streaming
+
+
+def test_streaming_with_the_real_client(fake):
+    pieces = list(_client(fake).stream("system", [{"role": "user", "content": "hi"}]))
+    assert pieces == ["Leave is ", "24 days ", "a year [D1]."]
+    req = fake.requests[-1]
+    assert req["body"]["stream"] is True and req["body"]["model"] == "claude-test"
+
+
+def test_a_streamed_answer_cut_short_says_so(fake):
+    fake.mode = "truncated"
+    pieces = list(_client(fake).stream("system", [{"role": "user", "content": "hi"}]))
+    assert pieces[-1].strip().startswith("(The answer was cut short")
+
+
+def test_streaming_errors_become_reasons(fake):
+    fake.mode = "401"
+    with pytest.raises(LLMError) as err:
+        list(_client(fake).stream("system", [{"role": "user", "content": "hi"}]))
+    assert err.value.reason == "auth"
+
+
+def test_the_streaming_endpoint_with_the_real_client(fake, client, login):
+    llm.set_llm(_client(fake))
+    r = client.post(
+        "/api/assistant/chat/stream", headers=login("neha"), json={"message": "How many days of earned leave do I get?"}
+    )
+    kinds = [b.split("\n", 1)[0] for b in r.text.strip().split("\n\n")]
+    assert kinds == ["event: delta"] * 3 + ["event: done"]
+    assert KEY not in r.text

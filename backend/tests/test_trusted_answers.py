@@ -184,3 +184,16 @@ def test_spelling_corrections_and_acronyms_only_come_from_documents_you_can_open
     notes = search_notes(priya, "When is the zepyrine migration?")
     assert "zephyrine" not in str(notes)
     assert not any(a["acronym"] == "OKR" for a in search_notes(priya, "When is the OKR review?").get("acronyms", []))
+
+
+def test_an_ai_answer_that_says_it_lacks_evidence_counts_as_not_enough(client, login, doc_id):
+    from conftest import FakeLLM
+
+    from app import llm
+
+    handbook = doc_id("Employee Handbook 2026")
+    llm.set_llm(FakeLLM(f"I couldn't find enough evidence in your documents. The closest is the handbook [D{handbook}]."))
+    reply = _ask(client, login("priya"), "How many days of earned leave do I get?")
+    assert reply["meta"]["mode"] == "ai" and reply["meta"]["evidence"]["enough"] is False
+    llm.set_llm(FakeLLM(f"You get 24 days of earned leave a year [D{handbook}]."))
+    assert _ask(client, login("priya"), "How many days of earned leave do I get?")["meta"]["evidence"]["enough"] is True

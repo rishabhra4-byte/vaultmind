@@ -65,7 +65,10 @@ class BudgetedLLM:
 
     def stream(self, system: str, messages: list[dict], max_tokens: int = 1024):
         self._check()
-        yield from self.inner.stream(system, messages, max_tokens)
+        if hasattr(self.inner, "stream"):
+            yield from self.inner.stream(system, messages, max_tokens)
+        else:
+            yield self.inner.complete(system, messages, max_tokens)
 
 
 def answers_today(db: Session, user: User) -> int:

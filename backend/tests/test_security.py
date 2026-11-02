@@ -363,7 +363,7 @@ def test_databases_from_version_1_are_upgraded_in_place(empty_database, monkeypa
     monkeypatch.setattr(migrations, "engine", engine)
     migrations.upgrade_database()
     with engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0004"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0005"
         assert conn.execute(text("SELECT email FROM users")).scalar() == "a@x"
         row = conn.execute(text("SELECT version, text FROM document_versions WHERE document_id = 7")).one()
         assert row == (1, "First part.\n\nSecond part.")

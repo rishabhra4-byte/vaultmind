@@ -83,6 +83,11 @@ function watch(page, tag) {
     // Chromium reports bodiless 204 responses as "aborted"; only count real failures.
     const resp = await r.response().catch(() => null);
     if (resp && resp.status() === 204) return;
+    // Chromium can also report a streamed answer (text/event-stream) as aborted after the page
+    // has read all of it: a race between the page finishing the read and the browser marking the
+    // request complete. The checks themselves fail if an answer doesn't arrive, so this isn't
+    // hidden; a stream that really breaks shows "The answer was cut off" and fails its check.
+    if (IS_CHROMIUM && error === 'net::ERR_ABORTED' && resp && resp.status() === 200 && /text\/event-stream/.test(resp.headers()['content-type'] ?? '')) return;
     if (error === 'net::ERR_ABORTED' && r.method() === 'DELETE') return;
     problems.push(`[${tag}] request failed: ${r.method()} ${r.url()} ${error}`);
   });
@@ -234,7 +239,10 @@ async function signOut(page) {
   await block('assistant as intern', async () => {
     const p = await newPage(browser, 'aarav');
     await signIn(p, 'Aarav Mehta');
-    await check('assistant: empty state shows four starter prompts', async () => (await p.$$('.starter')).length === 4);
+    await check('assistant: empty state shows four starter prompts', async () => {
+      await p.waitForSelector('.starter'); // the page's code loads after the sidebar appears
+      return (await p.$$('.starter')).length === 4;
+    });
     await check('first week: a new joiner sees the checklist, nothing ticked yet', async () => {
       await p.waitForSelector('.first-week');
       const items = await p.$$eval('.first-week li', (els) => els.map((e) => e.className));
@@ -366,6 +374,24 @@ async function signOut(page) {
       const labels = await reply.locator('.sources-label').allTextContents();
       return (t.includes('“dental”') && labels.every((l) => l.startsWith('Closest matches'))) || t.slice(0, 240);
     });
+    await check('assistant: "Not helpful" asks what was wrong, and the choice is kept', async () => {
+      const reply = p.locator('.msg-assistant:has-text("enough evidence")');
+      await reply.locator('button[aria-label="Not helpful"]').click();
+      await reply.locator('.feedback-form label:has-text("should have said")').click();
+      await reply.locator('.feedback-form textarea').fill('We do have dental cover; the HR team owns it.');
+      await reply.locator('.feedback-form button:has-text("Send")').click();
+      await toast(p, 'Thanks');
+      const pressed = await reply.locator('button[aria-label="Not helpful"]').getAttribute('aria-pressed');
+      return (pressed === 'true' && (await reply.locator('.feedback-form').count()) === 0) || `pressed=${pressed}`;
+    });
+    await check('assistant: "Helpful" can be given and taken back', async () => {
+      const reply = p.locator('.msg-assistant').first();
+      const up = reply.locator('button[aria-label="Helpful"]');
+      await up.click();
+      await p.waitForFunction(() => document.querySelector('.msg-assistant button[aria-label="Helpful"]')?.getAttribute('aria-pressed') === 'true');
+      await up.click();
+      await p.waitForFunction(() => document.querySelector('.msg-assistant button[aria-label="Helpful"]')?.getAttribute('aria-pressed') === 'false');
+    });
     await check('assistant: "Answer from" narrows answers to one team, and the reply says so', async () => {
       await p.click('.scope-picker > summary');
       await p.selectOption('.scope-fields select >> nth=0', { label: 'Engineering' });
@@ -425,15 +451,16 @@ async function signOut(page) {
     });
     await check('assistant: Stop cancels a slow answer and restores the question', async () => {
       await p.click('.threads button:has-text("New conversation")');
-      await p.route('**/api/assistant/chat', async (r) => { await new Promise((res) => setTimeout(res, 3000)); await r.continue().catch(() => {}); });
+      await p.route('**/api/assistant/chat**', async (r) => { await new Promise((res) => setTimeout(res, 3000)); await r.continue().catch(() => {}); });
       p.__expectFailures = true; // the cancelled request is reported as aborted, which is the point
+      const aborted = p.waitForEvent('requestfailed', { predicate: (r) => r.url().includes('/api/assistant/chat'), timeout: 10000 }).catch(() => null);
       await p.fill('.composer textarea', 'A question I will cancel');
       await p.click('.composer button[aria-label="Send"]');
       await p.click('.composer button[aria-label="Stop waiting"]');
       await toast(p, 'Stopped waiting');
       const v = await p.inputValue('.composer textarea');
-      await p.unroute('**/api/assistant/chat');
-      await p.waitForTimeout(300);
+      await aborted; // reported only once the delayed request is let through
+      await p.unroute('**/api/assistant/chat**');
       p.__expectFailures = false;
       return v === 'A question I will cancel' || v;
     });
@@ -766,6 +793,12 @@ async function signOut(page) {
       const t = await p.textContent('.insights');
       return (/\d+ questions/.test(t) && t.includes('salary bands') && !t.includes('Aarav')) || t.slice(0, 200);
     });
+    await check('admin: answers marked unhelpful are listed, without who marked them', async () => {
+      const panel = p.locator('.feedback-panel');
+      await panel.locator('li').first().waitFor({ timeout: 10000 });
+      const t = await panel.textContent();
+      return (t.includes('dental insurance') && t.includes("should have said it doesn't know") && !t.includes('Aarav')) || t.slice(0, 240);
+    });
     await check('admin: activity filter shows only refused opens', async () => {
       await p.click('.admin-tabs >> text=Activity');
       // Wait for the filtered list itself: the unfiltered one can also start with a refusal.
@@ -955,19 +988,19 @@ async function signOut(page) {
     });
     await check('offline: failed chat message shows an error and keeps the draft', async () => {
       await p.click('nav >> text=Assistant');
-      await p.route('**/api/assistant/chat', (r) => r.abort());
+      await p.route('**/api/assistant/chat**', (r) => r.abort());
       await p.fill('.composer textarea', 'Is this kept if sending fails?');
       await p.click('.composer button');
       await p.waitForSelector('.toast-error');
       const v = await p.inputValue('.composer textarea');
-      await p.unroute('**/api/assistant/chat');
+      await p.unroute('**/api/assistant/chat**');
       return v === 'Is this kept if sending fails?' || v;
     });
     await check('server errors: rate limit message reaches the user', async () => {
-      await p.route('**/api/assistant/chat', (r) => r.fulfill({ status: 429, contentType: 'application/json', body: '{"detail":"Slow down: try again in 30s"}' }));
+      await p.route('**/api/assistant/chat**', (r) => r.fulfill({ status: 429, contentType: 'application/json', body: '{"detail":"Slow down: try again in 30s"}' }));
       await p.click('.composer button');
       await p.waitForSelector('.toast-error:has-text("Slow down")');
-      await p.unroute('**/api/assistant/chat');
+      await p.unroute('**/api/assistant/chat**');
     });
     p.__expectFailures = false;
     await p.context().close();

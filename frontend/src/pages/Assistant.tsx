@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { api, ApiError } from "../api";
+import { api, ApiError, streamEvents } from "../api";
 import { RequestAccessDialog, teamColor, usePageTitle } from "../components/bits";
 import { Bubble } from "../components/Bubble";
 import {
@@ -57,6 +57,7 @@ export default function Assistant() {
   const [freshId, setFreshId] = useState<number | null>(null);
   const [requesting, setRequesting] = useState<LockedHint | null>(null);
   const [scope, setScope] = useState<AnswerFilters>({});
+  const [streamed, setStreamed] = useState(""); // an AI answer as it's being written
   const endRef = useRef<HTMLDivElement>(null);
   const askedRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -97,13 +98,20 @@ export default function Assistant() {
       setMessages((m) => (convo ? [...m, optimistic] : [optimistic]));
       const controller = new AbortController();
       abortRef.current = controller;
+      setStreamed("");
+      let wasStreamed = false;
       try {
-        const res = await api<{ conversation: Conversation; user_message: Message; reply: Message }>("/api/assistant/chat", {
-          method: "POST",
-          json: { message, conversation_id: convo, filters: Object.keys(scope).length ? scope : undefined },
-          signal: controller.signal,
-        });
-        setFreshId(res.reply.id);
+        const res = await streamEvents<{ conversation: Conversation; user_message: Message; reply: Message }>(
+          "/api/assistant/chat/stream",
+          { message, conversation_id: convo, filters: Object.keys(scope).length ? scope : undefined },
+          (text) => {
+            wasStreamed = true;
+            setStreamed((s) => s + text);
+          },
+          controller.signal,
+        );
+        // Already shown as it was written: no typing effect for the final version.
+        setFreshId(wasStreamed ? null : res.reply.id);
         setMessages((m) => [...m.filter((x) => x.id !== -1), res.user_message, res.reply]);
         if (res.conversation.id !== convo) setParams({ c: String(res.conversation.id) }, { replace: true });
         loadConversations();
@@ -115,6 +123,7 @@ export default function Assistant() {
       } finally {
         abortRef.current = null;
         setSending(false);
+        setStreamed("");
       }
     },
     [loadConversations, notify, setParams, scope],
@@ -226,15 +235,23 @@ export default function Assistant() {
               <span className="bot-avatar">
                 <IconSparkle />
               </span>
-              <div className="msg-assistant">
-                <div className="thinking" aria-label="Searching your documents">
-                  <span className="dots">
-                    <span />
-                    <span />
-                    <span />
-                  </span>
-                  Searching documents you can open
-                </div>
+              <div className="msg-assistant" aria-busy="true">
+                {streamed ? (
+                  <p className="streaming">
+                    {/* Citations are checked and numbered once the answer is complete. */}
+                    {streamed.replace(/\s?\[D\d+(?:\.\d+)?\]/g, "")}
+                    <span className="caret" aria-hidden />
+                  </p>
+                ) : (
+                  <div className="thinking" aria-label="Searching your documents">
+                    <span className="dots">
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                    Searching documents you can open
+                  </div>
+                )}
               </div>
             </div>
           )}

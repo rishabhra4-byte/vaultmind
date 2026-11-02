@@ -128,6 +128,7 @@ for _name, _kind, _help in (
     ("vaultmind_scan_failures_total", "counter", "Files refused because the malware scanner couldn't scan them."),
     ("vaultmind_syncs_total", "counter", "Source syncs by result."),
     ("vaultmind_backups_total", "counter", "Scheduled backups by result (verified, check_failed, failed)."),
+    ("vaultmind_answer_feedback_total", "counter", "Answers people marked helpful (up) or not (down), by mode."),
 ):
     registry.describe(_name, _kind, _help)
 
@@ -149,6 +150,9 @@ _AUDITED = {
 def count_audit(action: str, detail: dict) -> None:
     if action.endswith("_denied"):
         registry.inc("vaultmind_access_denied_total", {"action": action})
+    elif action == "assistant.feedback":
+        labels = {"rating": str(detail.get("rating")), "mode": str(detail.get("mode", ""))}
+        registry.inc("vaultmind_answer_feedback_total", labels)
     elif action == "auth.login":
         registry.inc("vaultmind_sign_ins_total", {"method": str(detail.get("method", "password")), "result": "ok"})
     elif action in _AUDITED:

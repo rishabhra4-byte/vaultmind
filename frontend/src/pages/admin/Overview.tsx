@@ -60,6 +60,56 @@ interface Operations {
   };
 }
 
+interface FeedbackReview {
+  counts: { up: number; down: number };
+  days: number;
+  items: {
+    id: number;
+    reason_label: string;
+    note: string;
+    question: string;
+    answer: string;
+    mode: string;
+    enough: boolean | null;
+    cited: { id: number; title: string }[];
+    at: string;
+  }[];
+}
+
+/** Answers people marked unhelpful (without who), to fix documents or add to the benchmark. */
+function FeedbackPanel({ review }: { review: FeedbackReview | null }) {
+  return (
+    <section className="panel feedback-panel">
+      <h3>Answers marked unhelpful</h3>
+      {!review ? (
+        <p className="muted small">Loading…</p>
+      ) : (
+        <>
+          <p className="muted small">
+            {review.counts.up} helpful, {review.counts.down} not helpful in the last {review.days} days.
+            {review.counts.down > 0 && " Export them for the benchmark with python -m app.cli export-feedback."}
+          </p>
+          {review.items.length > 0 && (
+            <ul className="plain">
+              {review.items.slice(0, 6).map((f) => (
+                <li key={f.id}>
+                  <strong>“{f.question}”</strong>
+                  <span className="muted small">
+                    {" "}
+                    {f.reason_label || "No reason given"}
+                    {f.note && `: “${f.note}”`}. {f.mode === "ai" ? "AI answer" : "Offline answer"}
+                    {f.cited.length > 0 && ` from ${f.cited.map((c) => c.title).join(", ")}`}, {timeAgo(f.at)}.
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 /** Whether uploads and synced files are scanned, and whether the scanner answers. */
 function ScannerStatus({ ops }: { ops: Operations | null }) {
   if (!ops) return <p className="muted small">Checking…</p>;
@@ -116,6 +166,7 @@ export default function Overview() {
   const [days, setDays] = useState(30);
   const [barsReady, setBarsReady] = useState(false);
   const [ops, setOps] = useState<Operations | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackReview | null>(null);
 
   useEffect(() => {
     api<Stats>("/api/admin/stats")
@@ -131,6 +182,17 @@ export default function Overview() {
       .then(setOps)
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    let current = true;
+    setFeedback(null);
+    api<FeedbackReview>(`/api/admin/feedback?days=${days}`)
+      .then((f) => current && setFeedback(f))
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [days]);
 
   useEffect(() => {
     let current = true; // switching periods quickly: only the last one's figures are shown
@@ -269,6 +331,7 @@ export default function Overview() {
                 </>
               )}
             </section>
+            <FeedbackPanel review={feedback} />
             <section className="panel">
               <h3>Possibly out of date</h3>
               {insights.stale_documents.length === 0 ? (

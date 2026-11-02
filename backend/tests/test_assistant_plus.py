@@ -50,7 +50,7 @@ def test_the_model_can_only_cite_passages_it_was_given(client, login, doc_id, fa
     fake_llm.reply = f"It's 24 days [D{handbook}.{n}]. See also [D{handbook}.999] and [D{falcon}.1]."
     reply = _ask(client, neha, LEAVE)["reply"]
     assert f'<passage id="D{handbook}.{n}">' in fake_llm.last_prompt
-    assert reply["content"] == f"It's 24 days [D{handbook}.{n}]. See also [D{handbook}] and ."
+    assert reply["content"] == f"It's 24 days [D{handbook}.{n}]. See also [D{handbook}] and."
     assert [(c["id"], c.get("passages")) for c in reply["meta"]["citations"]] == [(handbook, [n])]
 
 

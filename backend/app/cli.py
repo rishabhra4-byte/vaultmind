@@ -7,6 +7,7 @@
     python -m app.cli backup --out /backups          (then checks it restores)
     python -m app.cli verify-backup /backups         (the newest backup there, or one archive)
     python -m app.cli restore /backups/vaultmind-backup-....tar.gz --yes   (empty database only)
+    python -m app.cli export-feedback --out feedback.jsonl   (unhelpful answers, as benchmark drafts)
 
 Passwords are read from VAULTMIND_PASSWORD (or VAULTMIND_ADMIN_PASSWORD for create-admin) if
 set, otherwise prompted for, so they never appear in the shell history or the process list.
@@ -177,9 +178,23 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("archive")
     p.add_argument("--yes", action="store_true", help="confirm: restore into the configured database")
 
+    p = sub.add_parser("export-feedback", help="write answers people marked unhelpful as benchmark drafts")
+    p.add_argument("--out", required=True)
+    p.add_argument("--all", action="store_true", help="helpful answers too")
+    p.add_argument("--days", type=int, default=365)
+
     args = parser.parse_args(argv)
     if args.command in ("backup", "verify-backup", "restore"):
         return _backup_command(args)
+    if args.command == "export-feedback":
+        from . import feedback
+
+        upgrade_database()
+        with SessionLocal() as db:
+            n = feedback.export(db, Path(args.out), rating=None if args.all else "down", days=args.days)
+        print(f"Wrote {n} answer{'s' if n != 1 else ''} to {args.out}.")
+        print("Fill in expect, docs and says for each before adding it to the benchmark.")
+        return 0
     try:
         if args.command == "create-admin":
             password = _password("VAULTMIND_ADMIN_PASSWORD", "Password for the new admin: ")

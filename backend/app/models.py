@@ -11,6 +11,7 @@ Source ──< Document                 a connected file store (shared folder, G
 Document ──< AccessGrant >── User   time-boxed exceptions, created by approved requests
 User ──< AccessRequest
 User ──< Conversation ──< Message   assistant chat history
+Message ──< AnswerFeedback          whether an answer helped, from the person who asked
 User ──< AssistantAction            things the assistant offered to do, done only once confirmed
 User ──< Notification               in-app notices, also sent by email or Slack when set up
 User ──< UserIdentity               the person's id at Google, Microsoft or Slack
@@ -410,6 +411,23 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+
+
+class AnswerFeedback(Base):
+    """Whether an answer helped, from the person who asked. Deleted with the conversation, so
+    deleting a conversation really removes it."""
+
+    __tablename__ = "answer_feedback"
+    __table_args__ = (UniqueConstraint("message_id", "user_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[int] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    rating: Mapped[str] = mapped_column(String(10))  # up | down
+    reason: Mapped[str] = mapped_column(String(40), default="")  # wrong | missing | source | should_abstain | other
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class AssistantAction(Base):

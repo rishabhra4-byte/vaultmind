@@ -1,0 +1,73 @@
+# Answer quality with the AI on: runs the answer-quality benchmark (backend/eval) with real
+# Claude answers, on demand. It needs the repository secret VAULTMIND_ANTHROPIC_API_KEY
+# (Settings -> Secrets and variables -> Actions), so the key never appears in code or logs.
+#
+# Run it from the Actions tab: "Answer quality with AI" -> Run workflow. The held-out split is
+# 85 questions; with Claude Haiku 5.5 a run costs a few US cents.
+name: Answer quality with AI
+
+on:
+  workflow_dispatch:
+    inputs:
+      split:
+        description: Which questions (test = held out, dev = for tuning, all)
+        type: choice
+        options: [test, dev, all]
+        default: test
+      model:
+        description: Claude model
+        type: string
+        default: claude-haiku-5-5
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: The API key is set
+        env:
+          KEY: ${{ secrets.VAULTMIND_ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error title=No API key::Add the repository secret VAULTMIND_ANTHROPIC_API_KEY (Settings > Secrets and variables > Actions), then run this again."
+            exit 1
+          fi
+      - name: Benchmark with AI answers
+        env:
+          VAULTMIND_ANTHROPIC_API_KEY: ${{ secrets.VAULTMIND_ANTHROPIC_API_KEY }}
+          VAULTMIND_LLM_MODEL: ${{ inputs.model }}
+          SPLIT: ${{ inputs.split }}
+        run: |
+          args="--ai --out ai-report.json"
+          if [ "$SPLIT" != "all" ]; then args="$args --split $SPLIT"; fi
+          python -m eval.run $args | tee ai-summary.txt
+      - name: Results on the run's page
+        if: always()
+        run: |
+          {
+            echo "### Answer quality with AI (${{ inputs.model }}, ${{ inputs.split }} split)"
+            echo
+            echo '```'
+            cat ai-summary.txt 2>/dev/null || echo "No results: see the log above."
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the full report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-answer-quality-report
+          path: backend/ai-report.json
+          if-no-files-found: ignore

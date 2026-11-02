@@ -36,6 +36,13 @@ class FakeLLM:
         self.calls.append({"system": system, "messages": messages})
         return self.reply
 
+    def stream(self, system: str, messages: list[dict], max_tokens: int = 1024):
+        """The canned answer in a few pieces, as a streaming model would send it."""
+        self.calls.append({"system": system, "messages": messages, "streamed": True})
+        words = self.reply.split(" ")
+        for i in range(0, len(words), 3):
+            yield " ".join(words[i : i + 3]) + (" " if i + 3 < len(words) else "")
+
     @property
     def last_prompt(self) -> str:
         call = self.calls[-1]
