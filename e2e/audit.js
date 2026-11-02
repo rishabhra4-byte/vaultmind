@@ -155,14 +155,15 @@ async function signOut(page) {
     await check('fonts: self-hosted fonts load (no third-party requests)', async () => {
       const r = await p.evaluate(async () => {
         await document.fonts.ready;
-        await document.fonts.load('16px "Plus Jakarta Sans Variable"');
+        await document.fonts.load('16px "Inter Variable"');
+        await document.fonts.load('16px "JetBrains Mono Variable"');
         return {
-          sans: document.fonts.check('16px "Plus Jakarta Sans Variable"'),
+          sans: document.fonts.check('16px "Inter Variable"') && document.fonts.check('16px "JetBrains Mono Variable"'),
           loaded: [...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family),
           thirdParty: performance.getEntriesByType('resource').map((e) => e.name).filter((u) => !u.startsWith(location.origin)),
         };
       });
-      return (r.sans && r.loaded.some((f) => f.includes('Plus Jakarta')) && r.thirdParty.length === 0) || JSON.stringify(r);
+      return (r.sans && r.loaded.some((f) => f.includes('Inter')) && r.loaded.some((f) => f.includes('JetBrains Mono')) && r.thirdParty.length === 0) || JSON.stringify(r);
     });
     await check('csp: strict policy is sent and the theme script still runs under it', async () => {
       const res = await p.goto(BASE + '/');
