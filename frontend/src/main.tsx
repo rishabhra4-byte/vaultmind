@@ -1,10 +1,10 @@
-import "@fontsource-variable/plus-jakarta-sans";
-import "@fontsource/source-serif-4/400.css";
-import "@fontsource/source-serif-4/600.css";
+import "@fontsource-variable/inter";
+import "@fontsource-variable/jetbrains-mono";
 import { StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { Starfield } from "./components/Starfield";
 import { lazyPage } from "./lazyPage";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
@@ -20,6 +20,7 @@ const Assistant = lazyPage(() => import("./pages/Assistant"));
 const DocumentPage = lazyPage(() => import("./pages/DocumentPage"));
 const Library = lazyPage(() => import("./pages/Library"));
 const Requests = lazyPage(() => import("./pages/Requests"));
+const HowItWorks = lazyPage(() => import("./pages/HowItWorks"));
 
 /** Signed out on an app page: sign in, then come back here. */
 function SignInFirst() {
@@ -44,7 +45,7 @@ function App() {
         <Route path="/" element={endedReason ? <SignInFirst /> : <Landing />} />
         <Route path="/signin" element={<Login />} />
         {/* App pages need an account; anything else is a genuine 404. */}
-        {["/library/*", "/requests", "/admin/*"].map((p) => (
+        {["/library/*", "/requests", "/admin/*", "/how-it-works"].map((p) => (
           <Route key={p} path={p} element={<SignInFirst />} />
         ))}
         <Route path="*" element={<NotFound />} />
@@ -61,6 +62,7 @@ function App() {
             <Route path="library" element={<Library />} />
             <Route path="library/:id" element={<DocumentPage />} />
             <Route path="requests" element={<Requests />} />
+            <Route path="how-it-works" element={<HowItWorks />} />
             {user.is_admin && <Route path="admin/*" element={<Admin />} />}
             <Route path="*" element={<NotFound />} />
           </Route>
@@ -75,6 +77,7 @@ takeSignInFromUrl(); // before the router reads the address
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
+      <Starfield />
       <AppProvider>
         <App />
       </AppProvider>

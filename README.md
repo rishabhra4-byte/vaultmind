@@ -10,6 +10,10 @@ It connects to where company files already live (Google Drive, SharePoint and On
 
 ![VaultMind homepage](docs/landing.webp)
 
+**How it works, as a map you can explore.** On the homepage and inside the app, pick a route (ask a question, a document you can't open, an upload, a Drive sync, or no AI at all) and trace it step by step through the system. Select any part to see what goes in and out, why it's safe, what happens if it fails, and where it is in the code.
+
+![The interactive system map, tracing what happens when someone asks about a document they can't open](docs/system-map.webp)
+
 | An intern asks about salary bands | The engineering manager asks the same thing |
 |---|---|
 | ![Intern](docs/assistant-intern.webp) | ![Manager](docs/assistant-manager.webp) |
@@ -70,7 +74,7 @@ The intern gets nothing from the salary sheet. It is never even sent to the mode
 
 - **Admin pages.** People (add, edit, import from a spreadsheet with a preview), teams, groups, connected sources with their sync health, the glossary, the activity log, and insights: what people ask, what found nothing, and documents that may be out of date.
 - **First-week checklist.** New joiners get a short list (ask a question, read the starter documents for their team, see how access works) that ticks itself off as they go.
-- **Role-aware recommendations**, a **command palette** (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>), **light and dark themes**, and a **demo company** (Northwind Labs: 5 teams, 9 people, 28 documents including a synced shared folder and two older policies that contradict current ones) with one-click sign-in as each person.
+- **Role-aware recommendations**, a **command palette** (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>), **a dark theme with a light one a click away** (monospace headings, one green accent, a quiet starfield that stays still for anyone who asks for reduced motion), and a **demo company** (Northwind Labs: 5 teams, 9 people, 28 documents including a synced shared folder and two older policies that contradict current ones) with one-click sign-in as each person.
 
 ---
 
@@ -296,10 +300,11 @@ backend/
   eval/              answer-quality benchmark: cases, runner, baseline
   tests/
 frontend/
-  src/pages/         Landing, Login, Assistant, Library, Document, Requests, Admin (+ admin/ sections), NotFound
+  src/pages/         Landing, Login, Assistant, Library, Document, Requests, HowItWorks, Admin (+ admin/ sections), NotFound
   src/components/    Shell, NotificationBell, Bubble, ActionCard, doc/ (ask panel, versions), CommandPalette,
-                     RichText, icons, shared bits (avatars, tags, dialogs)
-  src/theme.tsx      light / dark theme
+                     RichText, icons, shared bits (avatars, tags, dialogs), SystemMap (+ its content in
+                     systemMap.data.ts), Starfield
+  src/theme.tsx      dark (default) / light theme
 e2e/
   audit.js           browser audit: flows, breakpoints, accessibility (Chromium, Firefox, WebKit)
   a11y-review.js     keyboard, focus, motion and text-spacing checks, accessibility-tree snapshots

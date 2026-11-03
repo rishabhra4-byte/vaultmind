@@ -13,29 +13,15 @@ function stored(): Theme | null {
   }
 }
 
-function system(): Theme {
-  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
 function apply(theme: Theme) {
   document.documentElement.dataset.theme = theme;
 }
 
-/** Follows the OS setting until the person picks a theme, then remembers their choice. */
+/** Dark until the person picks light, then remembers their choice. */
 export function useTheme(): [Theme, () => void] {
-  const [theme, setTheme] = useState<Theme>(() => stored() ?? system());
+  const [theme, setTheme] = useState<Theme>(() => stored() ?? "dark");
 
   useEffect(() => apply(theme), [theme]);
-
-  useEffect(() => {
-    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
-    if (!mq) return;
-    const onChange = () => {
-      if (!stored()) setTheme(system());
-    };
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
 
   const toggle = () =>
     setTheme((t) => {
