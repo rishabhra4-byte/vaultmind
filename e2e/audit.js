@@ -152,17 +152,71 @@ async function signOut(page) {
       return top < 200 || `section top at ${top}`;
     });
     await check('landing: nav gets background after scroll', async () => (await p.$('.site-nav.scrolled')) !== null);
+    await check('map: a route lights up its path, and the panel explains each step', async () => {
+      await p.waitForSelector('.system-map .sm-node');
+      await p.click('.sm-route:has-text("Can\'t open it")');
+      await p.click('.sm-step-controls button[aria-label="Next step"]');
+      await p.click('.sm-step-controls button[aria-label="Next step"]');
+      const r = await p.evaluate(() => ({
+        pressed: document.querySelector('.sm-route[aria-pressed="true"]')?.textContent,
+        status: document.querySelector('.sm-status')?.textContent ?? '',
+        now: document.querySelector('.sm-node.now')?.getAttribute('aria-label') ?? '',
+        lit: document.querySelectorAll('.sm-edge.done, .sm-edge.now').length,
+        title: document.querySelector('.sm-detail-title')?.textContent,
+      }));
+      return (r.pressed === "Can't open it" && r.status.includes('Step 3 of 8') && r.now.startsWith('Permission filter') && r.lit === 2 && r.title === 'Permission filter') || JSON.stringify(r);
+    });
+    await check('map: selecting a part shows what goes in and out, and where it is in the code', async () => {
+      await p.click('.sm-node[aria-label^="Malware scan"]');
+      const r = await p.evaluate(() => ({
+        title: document.querySelector('.sm-detail-title')?.textContent,
+        io: [...document.querySelectorAll('.sm-io dt')].map((e) => e.textContent),
+        code: document.querySelector('.sm-code')?.getAttribute('href') ?? '',
+        status: document.querySelector('.sm-status')?.textContent ?? '',
+      }));
+      return (r.title === 'Malware scan' && r.io.join(',') === "In,Out,Why it's safe,If it fails" && r.code.endsWith('/backend/app/malware.py') && r.status.includes("isn't on this route")) || JSON.stringify(r);
+    });
+    await check('map: parts can be chosen from the keyboard', async () => {
+      await p.focus('.sm-node[aria-label^="Claude"]');
+      await p.keyboard.press('Enter');
+      return (await p.textContent('.sm-detail-title')) === 'Claude' || (await p.textContent('.sm-detail-title'));
+    });
+    await check('map: "Trace the route" walks through the steps by itself', async () => {
+      await p.click('.sm-route:has-text("Upload a file")');
+      await p.click('.sm-play');
+      await p.waitForFunction(() => document.querySelector('.sm-status')?.textContent.includes('Step 2 of 6'), null, { timeout: 6000 });
+      await p.click('.sm-play'); // pause
+      return true;
+    });
+    await check('map: zoom in, then fit the whole map again', async () => {
+      const vb = () => p.$eval('.sm-svg', (s) => Number(s.getAttribute('viewBox').split(' ')[2]));
+      const before = await vb();
+      await p.click('.sm-tools button[aria-label="Zoom in"]');
+      const zoomed = await vb();
+      await p.click('.sm-tools button:has-text("Fit")');
+      const after = await vb();
+      return (zoomed < before && Math.abs(after - before) < 1) || `${before} -> ${zoomed} -> ${after}`;
+    });
+    await check('map: "Just this route" fades the rest of the system', async () => {
+      await p.check('.sm-switch input >> nth=0');
+      const faded = await p.$eval('.sm-node.off', (n) => Number(getComputedStyle(n).opacity));
+      await p.uncheck('.sm-switch input >> nth=0');
+      return faded < 0.3 || `opacity ${faded}`;
+    });
     await check('fonts: self-hosted fonts load (no third-party requests)', async () => {
       const r = await p.evaluate(async () => {
         await document.fonts.ready;
-        await document.fonts.load('16px "Plus Jakarta Sans Variable"');
+        await document.fonts.load('16px "Inter Variable"');
+        await document.fonts.load('16px "JetBrains Mono Variable"');
         return {
-          sans: document.fonts.check('16px "Plus Jakarta Sans Variable"'),
+          sans: document.fonts.check('16px "Inter Variable"'),
+          mono: document.fonts.check('16px "JetBrains Mono Variable"'),
           loaded: [...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family),
           thirdParty: performance.getEntriesByType('resource').map((e) => e.name).filter((u) => !u.startsWith(location.origin)),
         };
       });
-      return (r.sans && r.loaded.some((f) => f.includes('Plus Jakarta')) && r.thirdParty.length === 0) || JSON.stringify(r);
+      const both = r.loaded.some((f) => f.includes('Inter')) && r.loaded.some((f) => f.includes('JetBrains'));
+      return (r.sans && r.mono && both && r.thirdParty.length === 0) || JSON.stringify(r);
     });
     await check('csp: strict policy is sent and the theme script still runs under it', async () => {
       const res = await p.goto(BASE + '/');
@@ -182,14 +236,14 @@ async function signOut(page) {
       await p.click('text=‹ Back to home');
       await p.waitForURL(BASE + '/');
     });
-    await check('theme: toggle switches to dark and persists after reload', async () => {
+    await check('theme: dark by default; the toggle switches it and it persists after reload', async () => {
       const before = await p.evaluate(() => document.documentElement.dataset.theme);
       await p.click('.site-nav .theme-toggle');
       const after = await p.evaluate(() => document.documentElement.dataset.theme);
       await p.reload();
       const reloaded = await p.evaluate(() => document.documentElement.dataset.theme);
       await p.click('.site-nav .theme-toggle'); // back
-      return (before !== after && after === reloaded) || `${before} -> ${after} -> ${reloaded}`;
+      return (before === 'dark' && after === 'light' && after === reloaded) || `${before} -> ${after} -> ${reloaded}`;
     });
     await check('sign-in: wrong password shows a clear error', async () => {
       await p.goto(BASE + '/signin');
@@ -1054,6 +1108,7 @@ async function signOut(page) {
     ['library', '/library', 'Rohan Iyer'],
     ['document', '/library/6', 'Rohan Iyer'],
     ['requests', '/requests', 'Rohan Iyer'],
+    ['how-it-works', '/how-it-works', 'Rohan Iyer'],
     ['document-ask', '/library/6', 'Rohan Iyer', async (p) => {
       await p.click('button:has-text("Ask about this document")');
       await p.waitForSelector('.ask-drawer');
@@ -1082,6 +1137,12 @@ async function signOut(page) {
     for (const w of widths) {
       // bypassCSP only so the axe script can be injected; every other check runs with CSP enforced.
       const ctx = await browser.newContext({ viewport: { width: w, height: w < 800 ? 844 : 900 }, colorScheme: theme, bypassCSP: true });
+      // The theme is the person's choice (dark unless they pick light), so set it for this sweep.
+      await ctx.addInitScript((t) => {
+        try {
+          localStorage.setItem('vaultmind.theme', t);
+        } catch (e) {}
+      }, theme);
       ctx.setDefaultTimeout(20000);
       let p = await ctx.newPage();
       watch(p, `${theme}@${w}`);

@@ -7,7 +7,7 @@ import { Avatar, Ladder } from "./bits";
 import CommandPalette from "./CommandPalette";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { NotificationBell } from "./NotificationBell";
-import { IconChat, IconInbox, IconKey, IconLibrary, IconLogout, IconSearch, IconShield, IconSparkle } from "./icons";
+import { IconChat, IconColumns, IconInbox, IconKey, IconLibrary, IconLogout, IconSearch, IconShield, IconSparkle } from "./icons";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -65,6 +65,10 @@ export default function Shell() {
             )}
           </NavLink>
           <NotificationBell />
+          <NavLink to="/how-it-works" className="nav-extra">
+            <IconColumns />
+            <span className="nav-label">How it works</span>
+          </NavLink>
           {user.is_admin && (
             <NavLink to="/admin">
               <IconShield />

@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useEffect, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import { Avatar, ClassTag, teamColor, usePageTitle } from "../components/bits";
 import {
@@ -13,6 +13,9 @@ import {
 } from "../components/icons";
 import { useApp } from "../state";
 import { ThemeToggle } from "../theme";
+
+// The map is the biggest part of this page, so it loads separately, after the hero.
+const SystemMap = lazy(() => import("../components/SystemMap"));
 
 const FEATURES = [
   {
@@ -170,33 +173,22 @@ export default function Landing() {
 
         <section className="section" id="how">
           <div className="section-head">
+            <span className="section-kicker">how it works</span>
             <h2>Permissions are checked before the AI reads anything</h2>
             <p className="muted">
               Most document chatbots put everything in the prompt and ask the model to keep secrets. VaultMind never gives the
-              model a page the person can't open, so there's nothing to leak.
+              model a page the person can't open, so there's nothing to leak. Follow a question, a locked document or an upload
+              through the system below.
             </p>
           </div>
-          <ol className="steps">
-            <li style={{ "--sc": "#6366f1" } as CSSProperties}>
-              <span className="step-n">1</span>
-              <h3>Check who's asking</h3>
-              <p>Their team, their position, and any temporary access they've been granted decide which files are in scope.</p>
-            </li>
-            <li style={{ "--sc": "#d946ef" } as CSSProperties}>
-              <span className="step-n">2</span>
-              <h3>Search only what they can open</h3>
-              <p>Matching passages come from those files alone. Locked files that match are listed by title, never by content.</p>
-            </li>
-            <li style={{ "--sc": "#10b981" } as CSSProperties}>
-              <span className="step-n">3</span>
-              <h3>Answer with sources</h3>
-              <p>The answer cites each file it used. Anything locked comes with a one-click request to the people who own it.</p>
-            </li>
-          </ol>
+          <Suspense fallback={<div className="system-map sm-placeholder" aria-busy="true" />}>
+            <SystemMap headingLevel={3} />
+          </Suspense>
         </section>
 
         <section className="section" id="features">
           <div className="section-head">
+            <span className="section-kicker">features</span>
             <h2>Everything a team needs to share knowledge safely</h2>
           </div>
           <div className="feature-grid">
@@ -212,6 +204,7 @@ export default function Landing() {
 
         <section className="section security-band" id="security">
           <div className="security-copy">
+            <span className="section-kicker">security</span>
             <h2>Four levels, six positions, one set of rules</h2>
             <p>
               Every document has a classification and an owning team. Every person has a team and a position. The rules live in
