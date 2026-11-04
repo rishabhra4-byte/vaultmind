@@ -497,3 +497,50 @@ export interface ReviewQueue {
   open: ReviewItem[];
   resolved: ReviewCase[];
 }
+
+// ---------------------------------------------------------------- the library map (admin)
+
+export type FileKind = "pdf" | "word" | "sheet" | "slides" | "markdown" | "text" | "web" | "data" | "other";
+
+export interface LibraryDoc {
+  id: number;
+  title: string;
+  kind: FileKind;
+  bytes: number;
+  passages: number;
+  classification: Classification;
+  team_id: number;
+  source_id: number | null;
+  folder: string;
+  created_at: string;
+  updated_at: string;
+  opens: number;
+  cited: number;
+  duplicate: number | null; // index into duplicates
+}
+
+export interface DuplicateGroup {
+  kind: "same_file" | "same_text";
+  similarity: number;
+  documents: number[];
+}
+
+export interface CleanupItem {
+  kind: "same_file" | "same_text" | "old_but_used" | "unused";
+  doc_id: number;
+  keep_id?: number;
+  why: string;
+}
+
+export interface LibraryMapData {
+  generated_at: string;
+  days: number;
+  totals: { documents: number; bytes: number; passages: number; compared: number };
+  truncated: boolean;
+  kinds: { kind: FileKind; label: string; documents: number; bytes: number; passages: number }[];
+  teams: { id: number; name: string }[];
+  sources: { id: number; name: string; kind: string }[];
+  documents: LibraryDoc[];
+  duplicates: DuplicateGroup[];
+  cleanup: CleanupItem[];
+}

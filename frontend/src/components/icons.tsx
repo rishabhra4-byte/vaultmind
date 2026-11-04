@@ -298,3 +298,16 @@ export const IconThumbDown = (p: P) => (
     <path d="M17 14l-4 8a3 3 0 0 1-3-3v-4H4.5a2 2 0 0 1-2-2.3l1.2-7.7a2 2 0 0 1 2-1.7H17" />
   </Svg>
 );
+
+export const IconTreemap = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M12 3v18M12 10h9M3 14h9M16.5 10v11" />
+  </Svg>
+);
+
+export const IconFolder = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+  </Svg>
+);

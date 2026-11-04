@@ -609,3 +609,42 @@ showed `&amp;` for "&".
 | Answer-quality benchmark, `--check` | **No regressions** (it measures search and answers; the demo's verified answers aren't part of it) |
 | Browser audit (Chromium, local) | **550 of 550**, 0 console or network problems; new: a verified answer's label and paragraph citation, no Verify button for non-admins, marking an answer unhelpful, the queue without names, deciding a question and its check, the score, the verified list, and verifying an answer in the assistant so the next person gets it |
 | Accessibility review | 24 of 24 |
+
+## K. A library map for administrators (5 November 2026)
+
+### K1. What was added
+
+- **Library map** (**Admin → Library map**), after disk-usage tools like WinDirStat: every
+  document as a rectangle in a treemap, sized by file size, passages or use, grouped by team,
+  source and folder, coloured by file type, classification or age; a colour list with counts
+  and sizes that picks documents out; zoom by click, breadcrumb or keyboard; find by title or
+  folder; the largest files; duplicates (same file, or almost the same text); and clean-up
+  suggestions (extra copies, old documents still in use, unused documents).
+
+### K2. Risks, and how they're handled
+
+| # | Risk | How it's handled | Proven by |
+|---|---|---|---|
+| K-S1 | Titles of every document, including restricted ones, shown to someone who shouldn't see them | Administrators only (administrators can already open every document); others get 403 | `test_only_administrators_see_the_library_map`, browser audit |
+| K-S2 | A clean-up action deletes the wrong thing | Nothing is deleted from the map except an uploaded extra copy of the same file, after a second confirmation, through the existing delete (which checks permission and is logged); the copy kept is the one people use most; synced copies are deleted in their source | `test_the_same_file_twice_is_a_duplicate_and_the_less_used_copy_is_the_one_to_clean_up`, browser audit |
+| K-S3 | Different documents reported as near-duplicates | Text sketches compare five-word runs; documents under 40 words aren't compared; runs found in more than 50 documents (standard footers) don't make a pair; 80% estimated overlap needed; it's a suggestion to review, never automatic | `test_almost_the_same_text_is_found_and_unrelated_documents_are_not`, `test_sketches_estimate_shared_text` |
+| K-S4 | A large library makes the page slow | The map sends up to 20,000 documents (largest first), gzipped; sketches are computed when a document is indexed, not per request | Not load-tested beyond the demo library (see K4) |
+| K-S5 | Colours that can't be told apart | Only three file types get a colour (validated for colour-blind separation and normal vision against both themes' surfaces); classification and age use one-hue ramps; every value is also in the lists | Palette validator; accessibility review |
+
+### K3. Tests run and their results (5 November)
+
+| What | Result |
+|---|---|
+| Backend tests, SQLite | **304 passed**, 5 skipped (the live Claude checks, which need a key) |
+| Backend tests, PostgreSQL 16 | **304 passed**, 5 skipped, no warnings |
+| Answer-quality benchmark, `--check` | **No regressions** |
+| Browser audit (Chromium, local) | **588 of 588**, 0 console or network problems; new: every document drawn, the colour list picks out its type, zooming from the keyboard and back by the breadcrumb, a document's details, find, the largest files in order, tabs by arrow keys, a duplicate uploaded by two teams found and its extra copy deleted from clean-up, 403 for non-admins, and the page in the axe and overflow sweep at 8 widths in both themes |
+| Accessibility review | **26 of 26** (the library map's controls all have names; every Tab stop stays visible at 390 and 1280 px) |
+
+### K4. Still unverified
+
+- The map and its duplicate search with a large library (tens of thousands of documents):
+  measured only on the demo's 28. Building sketches adds about 40% to tokenising a document's
+  text when it's indexed (measured on the demo corpus repeated 20 times).
+- The near-duplicate threshold on real company files (old and new policy versions, PDF and
+  Word exports of the same document).

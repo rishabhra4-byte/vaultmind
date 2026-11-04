@@ -3,6 +3,7 @@ import { Empty, usePageTitle } from "../components/bits";
 import Activity from "./admin/Activity";
 import Glossary from "./admin/Glossary";
 import Groups from "./admin/Groups";
+import LibraryMap from "./admin/LibraryMap";
 import Overview from "./admin/Overview";
 import People from "./admin/People";
 import Review from "./admin/Review";
@@ -14,6 +15,7 @@ const TABS: [string, string][] = [
   ["", "Overview"],
   ["review", "Fix answers"],
   ["verified", "Verified answers"],
+  ["library", "Library map"],
   ["people", "People"],
   ["teams", "Teams"],
   ["groups", "Groups"],
@@ -43,6 +45,7 @@ export default function Admin() {
         <Route index element={<Overview />} />
         <Route path="review" element={<Review />} />
         <Route path="verified" element={<Verified />} />
+        <Route path="library" element={<LibraryMap />} />
         <Route path="people" element={<People />} />
         <Route path="teams" element={<Teams />} />
         <Route path="groups" element={<Groups />} />

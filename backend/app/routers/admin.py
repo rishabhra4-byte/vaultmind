@@ -1,11 +1,12 @@
 import re
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import embeddings, sso
+from .. import embeddings, library, sso
 from ..assistant import COMPANY
 from ..config import get_settings
 from ..database import get_db
@@ -123,6 +124,20 @@ def stats(_: User = Depends(admin_user), db: Session = Depends(get_db)):
             {"id": d.id, "title": d.title, "classification": d.classification, "flags": d.sensitivity_flags} for d in flagged
         ][:10],
     }
+
+
+@router.get("/admin/library")
+def library_map(
+    request: Request,
+    days: int = Query(90, ge=7, le=365),
+    _: User = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
+    """Every document with its size, type, team, source and folder (for the treemap), file
+    types, duplicates and clean-up suggestions. Opens and answer citations are counted over
+    `days`."""
+    body, headers = library.encode(library.overview(db, days), request.headers.get("accept-encoding", ""))
+    return Response(body, media_type="application/json", headers=headers)
 
 
 @router.get("/admin/feedback")
