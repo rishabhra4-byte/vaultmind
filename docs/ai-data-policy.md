@@ -39,6 +39,8 @@ asking can open the document anyway.
 | Summary at upload or sync | The title and the first 12,000 characters, masked, if the document may be read by the AI | Anything, for documents kept from the AI: their summary is their own first sentences |
 | "What changed" in a new version | The changed, added and removed sentences, masked, if the document may be read by the AI | Anything, for documents kept from the AI: the change is described from the comparison alone |
 | Ask about one document, compare two, draft a message | Passages of those documents (masked), if each may be read by the AI | The same as above |
+| A verified answer | Nothing: it's written by a person and shown as written | |
+| Checking the fix-it queue | Nothing: checks use offline answers | |
 | Search by meaning, if turned on (`VAULTMIND_EMBEDDINGS_URL`), to the embedding service | In the background: each passage (masked, with its document's title) of documents the AI may read. With each search: the question (masked) | Documents kept from the AI, restricted documents (by default), and anything about who is asking. Turning AI reading off for a document or source also deletes its vectors |
 
 Each request to the AI service is limited in length and time (`VAULTMIND_LLM_TIMEOUT_SECONDS`),

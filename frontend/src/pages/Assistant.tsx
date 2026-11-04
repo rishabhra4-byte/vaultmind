@@ -220,10 +220,11 @@ export default function Assistant() {
               </div>
             </div>
           ) : (
-            messages.map((m) => (
+            messages.map((m, i) => (
               <Bubble
                 key={m.id}
                 message={m}
+                question={i > 0 && messages[i - 1].role === "user" ? messages[i - 1].content : undefined}
                 animate={m.id === freshId}
                 onRequest={setRequesting}
                 onUpdate={(updated) => setMessages((ms) => ms.map((x) => (x.id === updated.id ? updated : x)))}

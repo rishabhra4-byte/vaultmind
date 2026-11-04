@@ -280,3 +280,55 @@ if __name__ == "__main__":
     Base.metadata.create_all(engine)
     with SessionLocal() as session:
         print("Seeded demo data" if seed(session) else "Database already has data; nothing to do")
+
+
+def seed_verified_answers(db: Session) -> int:
+    """Two verified answers for the public demo, so visitors can see one. Kept out of `seed`:
+    the tests and the answer-quality benchmark measure search and answers on their own."""
+    from .models import Document, VerifiedAnswer
+    from .verified import mark_reviewed
+
+    if db.scalar(select(VerifiedAnswer.id).limit(1)) is not None:
+        return 0
+    docs = {d.title: d for d in db.scalars(select(Document))}
+    people = {u.email.split("@")[0]: u for u in db.scalars(select(User))}
+    teams = {t.name: t for t in db.scalars(select(Team))}
+    handbook = docs.get("Employee Handbook 2026")
+    if handbook is None or "neha" not in people:
+        return 0
+
+    def cite(fact: str) -> str:
+        """Cite the paragraph that says it, so the citation opens right there."""
+        n = next((c.ordinal for c in handbook.chunks if fact in c.text), None)
+        return f"[D{handbook.id}.{n}]" if n is not None else f"[D{handbook.id}]"
+
+    answers = [
+        VerifiedAnswer(
+            question="How many days of earned leave do I get?",
+            phrasings=["How much annual leave do I get?", "How many earned leave days per year?"],
+            answer=(
+                f"Every full-time employee gets **24 days of earned leave a year**, accrued monthly {cite('24 days of earned leave')}, "
+                "plus 12 days of combined sick and casual leave. Up to 10 unused earned leave days carry over to the "
+                "next year. Apply in the HR portal at least a week ahead for planned time off."
+            ),
+            doc_ids=[handbook.id],
+            owner_team_id=teams["Human Resources"].id,
+            review_days=180,
+        ),
+        VerifiedAnswer(
+            question="What is the notice period?",
+            phrasings=["How long is the notice period?", "How much notice do I need to give when I resign?"],
+            answer=(
+                f"After confirmation, the notice period is **60 days** for Associate level and above, and **30 days** "
+                f"for interns {cite('notice period is 60 days')}. New joiners first have a three-month probation period."
+            ),
+            doc_ids=[handbook.id],
+            owner_team_id=teams["Human Resources"].id,
+            review_days=180,
+        ),
+    ]
+    for va in answers:
+        db.add(va)
+        mark_reviewed(db, va, people["neha"])
+    db.commit()
+    return len(answers)

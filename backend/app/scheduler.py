@@ -25,6 +25,16 @@ def run_backup() -> None:
     run_scheduled()
 
 
+def remind_verified() -> int:
+    """Tell owners when a verified answer is due for review or a source of it changed."""
+    from . import verified
+
+    with SessionLocal() as db:
+        sent = verified.remind(db)
+        db.commit()
+        return sent
+
+
 def embed_pending() -> int:
     """Vectors for new passages, when search by meaning is on (a bounded batch per tick)."""
     from . import embeddings
@@ -112,5 +122,6 @@ class Scheduler:
             self._last_hourly = time.monotonic()
             job("expiry reminders", remind_expiring_grants)
             job("backup", run_backup)
+            job("verified answer reviews", remind_verified)
         job("deliveries", deliver_pending)
         job("search by meaning", embed_pending)

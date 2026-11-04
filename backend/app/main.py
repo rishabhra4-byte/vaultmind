@@ -16,9 +16,22 @@ from . import metrics
 from .config import get_settings
 from .database import SessionLocal, engine
 from .migrations import upgrade_database
-from .routers import access, admin, assistant, auth, directory, documents, glossary, me, notifications, slack, sources
+from .routers import (
+    access,
+    admin,
+    assistant,
+    auth,
+    directory,
+    documents,
+    glossary,
+    me,
+    notifications,
+    quality,
+    slack,
+    sources,
+)
 from .scheduler import Scheduler
-from .seed import seed
+from .seed import seed, seed_verified_answers
 from .services import rebuild_index
 from .sync import reset_stuck_syncs
 
@@ -53,6 +66,7 @@ async def lifespan(app: FastAPI):
     upgrade_database()
     with SessionLocal() as db:
         if settings.demo_enabled and seed(db):
+            seed_verified_answers(db)
             log.info("Seeded demo company data")
         reset_stuck_syncs(db)
         log.info("Search index built with %d documents", rebuild_index(db))
@@ -181,6 +195,7 @@ for r in (
     assistant.router,
     access.router,
     admin.router,
+    quality.router,
     notifications.router,
     sources.router,
     glossary.router,

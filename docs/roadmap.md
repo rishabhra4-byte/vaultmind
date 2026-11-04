@@ -62,9 +62,11 @@ that the answer sentence mentions the subject, are the next things to try.
 **Why:** the benchmark's 229 questions were written against the demo company. A pilot's own
 questions are the real test.
 
-**What:** turn **Admin → Overview → "Asked, but nothing matched"** into a review queue where
-administrators mark the right document (or "nothing answers this"), and add those as private
-benchmark cases that run in the company's own CI.
+**Built on 4 November:** **Admin → Fix answers** is that review queue: unhelpful answers and
+unanswered questions, decided by an administrator (the right documents, or "nothing answers
+this") and checked again as the person who asked, with a score. Verified answers fix the
+common ones for good. Still to do: run the decided cases in the company's own CI, and a
+baseline to compare releases against.
 
 **Done when:** a pilot has 200 reviewed questions of its own and a baseline for them.
 
