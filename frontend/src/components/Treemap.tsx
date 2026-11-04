@@ -77,6 +77,60 @@ export function Treemap({
     else onZoom(cell.path);
   }
 
+  // Documents and sub-groups are drawn inside their group's element, as in the tree.
+  const inside = useMemo(() => {
+    const m = new Map<number, number[]>();
+    cells.forEach((c, i) => m.set(c.parent, [...(m.get(c.parent) ?? []), i]));
+    return m;
+  }, [cells]);
+
+  function draw(i: number): React.ReactNode {
+    const c = cells[i];
+    const { x, y, w, h } = c.rect;
+    if (c.node.doc) {
+      const d = c.node.doc;
+      const tone = colorClass(d, colorBy, kinds);
+      const dim = highlight !== null && !highlight.has(d.id);
+      const name = w > 46 && h > 18 ? fit(d.title, w, 7) : "";
+      return (
+        <g key={c.node.key} data-i={i} className={`tm-doc tone-${tone}${dim ? " dim" : ""}`}>
+          <rect x={x + 1} y={y + 1} width={Math.max(0, w - 2)} height={Math.max(0, h - 2)} rx={Math.min(3, w / 4, h / 4)} />
+          {name && (
+            <text x={x + 6} y={y + 14}>
+              {name}
+            </text>
+          )}
+        </g>
+      );
+    }
+    const title = c.header ? fit(`${c.node.name} · ${amount(c.node.value, sizeBy)}`, w, 6.6) : "";
+    return (
+      <g
+        key={c.node.key}
+        data-i={i}
+        className="tm-group"
+        // Groups with a visible name can be zoomed into from the keyboard too.
+        tabIndex={c.header ? 0 : undefined}
+        role={c.header ? "button" : undefined}
+        aria-label={c.header ? `Zoom into ${c.node.name}, ${c.node.docs} documents, ${amount(c.node.value, sizeBy)}` : undefined}
+        onKeyDown={(e) => {
+          if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+            e.preventDefault();
+            onZoom(c.path);
+          }
+        }}
+      >
+        <rect className="tm-group-box" x={x + 1} y={y + 1} width={Math.max(0, w - 2)} height={Math.max(0, h - 2)} rx={4} />
+        {title && (
+          <text x={x + 7} y={y + 13}>
+            {title}
+          </text>
+        )}
+        {(inside.get(i) ?? []).map(draw)}
+      </g>
+    );
+  }
+
   return (
     <div className="treemap" ref={wrap} style={{ height }} onPointerLeave={() => setTip(null)}>
       {root.value === 0 ? (
@@ -86,50 +140,7 @@ export function Treemap({
       ) : (
         width > 0 && (
           <svg width={width} height={height} role="group" aria-label={label} onPointerMove={move} onClick={click}>
-            {cells.map((c, i) => {
-              const { x, y, w, h } = c.rect;
-              if (c.node.doc) {
-                const d = c.node.doc;
-                const tone = colorClass(d, colorBy, kinds);
-                const dim = highlight !== null && !highlight.has(d.id);
-                const name = w > 46 && h > 18 ? fit(d.title, w, 7) : "";
-                return (
-                  <g key={c.node.key} data-i={i} className={`tm-doc tone-${tone}${dim ? " dim" : ""}`}>
-                    <rect x={x + 1} y={y + 1} width={Math.max(0, w - 2)} height={Math.max(0, h - 2)} rx={Math.min(3, w / 4, h / 4)} />
-                    {name && (
-                      <text x={x + 6} y={y + 14}>
-                        {name}
-                      </text>
-                    )}
-                  </g>
-                );
-              }
-              const title = c.header ? fit(`${c.node.name} · ${amount(c.node.value, sizeBy)}`, w, 6.6) : "";
-              return (
-                <g
-                  key={c.node.key}
-                  data-i={i}
-                  className="tm-group"
-                  // Groups with a visible name can be zoomed into from the keyboard too.
-                  tabIndex={c.header ? 0 : undefined}
-                  role={c.header ? "button" : undefined}
-                  aria-label={c.header ? `Zoom into ${c.node.name}, ${c.node.docs} documents, ${amount(c.node.value, sizeBy)}` : undefined}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onZoom(c.path);
-                    }
-                  }}
-                >
-                  <rect x={x + 1} y={y + 1} width={Math.max(0, w - 2)} height={Math.max(0, h - 2)} rx={4} />
-                  {title && (
-                    <text x={x + 7} y={y + 13}>
-                      {title}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
+            {(inside.get(-1) ?? []).map(draw)}
             {chosen && (
               <rect
                 className="tm-selected"

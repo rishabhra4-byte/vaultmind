@@ -5446,21 +5446,21 @@ kbd,
   padding: 24px;
   text-align: center;
 }
-.tm-group > rect {
+.tm-group-box {
   fill: color-mix(in srgb, var(--ink) 5%, transparent);
   cursor: zoom-in;
 }
-.tm-group:hover > rect {
+.tm-group-box:hover {
   fill: color-mix(in srgb, var(--ink) 9%, transparent);
 }
 .tm-group:focus {
   outline: none;
 }
-.tm-group:focus-visible > rect {
+.tm-group:focus-visible > .tm-group-box {
   stroke: var(--primary);
   stroke-width: 2;
 }
-.tm-group text {
+.tm-group > text {
   fill: var(--ink-2);
   font-weight: 600;
   pointer-events: none;

@@ -174,6 +174,7 @@ export function squarify<T>(items: T[], value: (t: T) => number, r: Rect): { ite
 export interface Cell {
   node: TNode;
   path: string[]; // keys from the drawn root to this node
+  parent: number; // index of the group it's drawn inside, or -1
   rect: Rect;
   depth: number;
   header: boolean; // a group with room for its name across the top
@@ -182,27 +183,28 @@ export interface Cell {
 const HEADER = 18;
 const PAD = 3;
 
-/** Every rectangle to draw, groups before what's inside them. */
+/** Every rectangle to draw, groups before what's inside them; each knows the group it's in, so
+ *  a group's drawing can contain its documents (as the tree does). */
 export function layout(root: TNode, width: number, height: number): Cell[] {
   const cells: Cell[] = [];
-  const place = (n: TNode, r: Rect, depth: number, path: string[]) => {
+  const place = (n: TNode, r: Rect, depth: number, path: string[], parent: number) => {
     for (const { item, rect } of squarify(n.children, (c) => c.value, r)) {
       if (item.doc) {
-        cells.push({ node: item, path: [...path, item.key], rect, depth, header: false });
+        cells.push({ node: item, path: [...path, item.key], parent, rect, depth, header: false });
         continue;
       }
       const header = rect.w > 56 && rect.h > HEADER + 14;
-      cells.push({ node: item, path: [...path, item.key], rect, depth, header });
+      const at = cells.push({ node: item, path: [...path, item.key], parent, rect, depth, header }) - 1;
       const inner = {
         x: rect.x + PAD,
         y: rect.y + (header ? HEADER : PAD),
         w: rect.w - 2 * PAD,
         h: rect.h - (header ? HEADER : PAD) - PAD,
       };
-      if (inner.w > 3 && inner.h > 3) place(item, inner, depth + 1, [...path, item.key]);
+      if (inner.w > 3 && inner.h > 3) place(item, inner, depth + 1, [...path, item.key], at);
     }
   };
-  place(root, { x: 0, y: 0, w: width, h: height }, 0, []);
+  place(root, { x: 0, y: 0, w: width, h: height }, 0, [], -1);
   return cells;
 }
 

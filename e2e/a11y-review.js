@@ -172,7 +172,7 @@ const focusInfo = (page) =>
     await page.goto(BASE + '/signin');
     await page.click('.persona:has-text("Dev Patel")');
     await page.waitForSelector('.sidebar');
-    const adminPages = ['/admin', '/admin/people', '/admin/teams', '/admin/groups', '/admin/sources', '/admin/glossary', '/admin/activity'];
+    const adminPages = ['/admin', '/admin/people', '/admin/teams', '/admin/groups', '/admin/sources', '/admin/glossary', '/admin/activity', '/admin/library'];
     await check('names: every control on the admin pages has an accessible name', async () => {
       const unnamed = [];
       for (const p of adminPages) {
@@ -236,7 +236,7 @@ const focusInfo = (page) =>
     await page.goto(BASE + '/signin');
     await page.click('.persona:has-text("Rohan Iyer")');
     await page.waitForSelector('.sidebar, .topbar');
-    for (const url of ['/library', '/library/6', '/requests', 'admin:/admin/people', 'admin:/admin/sources']) {
+    for (const url of ['/library', '/library/6', '/requests', 'admin:/admin/people', 'admin:/admin/sources', 'admin:/admin/library']) {
       if (url.startsWith('admin:') && !page.__admin) {
         await page.evaluate(() => localStorage.removeItem('vaultmind.token'));
         await page.goto(BASE + '/signin');
