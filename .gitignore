@@ -19,6 +19,11 @@ frontend/dist/
 
 # OS / editors
 .DS_Store
-.vscode/
+# Personal editor settings stay out; the project's shared VS Code setup is kept.
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/extensions.json
 .idea/
 *.tsbuildinfo

@@ -188,6 +188,16 @@ npm run dev
 
 The first start creates a SQLite database and loads the demo company. Interactive API docs are at http://localhost:8000/docs (development only; they are switched off in production).
 
+### In VS Code
+
+1. **Clone it**: press `Ctrl+Shift+P`, run **Git: Clone**, paste `https://github.com/rishabhra4-byte/vaultmind`, pick a folder, then **Open**. You need [Python 3.12+](https://www.python.org/downloads/), [Node 20+](https://nodejs.org/) and [Git](https://git-scm.com/).
+2. Accept the recommended extensions when asked (Python, Python Debugger, Ruff).
+3. **Terminal → Run Task… → Set up (first time)** creates `backend/.venv` and installs both halves.
+4. **Terminal → Run Build Task** (`Ctrl+Shift+B`) starts the backend and the web app together; open http://localhost:5173 and sign in as any demo person.
+5. **Run and Debug** (`Ctrl+Shift+D`) has **Backend (debug)** for breakpoints in the API, **Backend tests (debug this file)**, and **Web app in Chrome**. The Testing panel runs the backend tests too.
+
+Each task has a Windows (PowerShell) command and a macOS and Linux one.
+
 ### Deploying for real
 
 The Docker image runs in production mode. On top of the Quickest steps:

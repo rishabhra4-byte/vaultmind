@@ -1,0 +1,36 @@
+{
+  // Run and Debug (Ctrl+Shift+D): breakpoints in the backend, or the web app in a browser.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend (debug)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["app.main:app", "--port", "8000"],
+      "cwd": "${workspaceFolder}/backend",
+      "python": "${workspaceFolder}/backend/.venv/bin/python",
+      "windows": { "python": "${workspaceFolder}/backend/.venv/Scripts/python.exe" },
+      "justMyCode": true
+    },
+    {
+      "name": "Backend tests (debug this file)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-q", "${file}"],
+      "cwd": "${workspaceFolder}/backend",
+      "python": "${workspaceFolder}/backend/.venv/bin/python",
+      "windows": { "python": "${workspaceFolder}/backend/.venv/Scripts/python.exe" },
+      "justMyCode": false
+    },
+    {
+      "name": "Web app in Chrome",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/frontend/src",
+      "preLaunchTask": "Web app (:5173)"
+    }
+  ]
+}
