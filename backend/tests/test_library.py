@@ -74,7 +74,8 @@ def test_a_large_map_is_sent_compressed(client, login):
 
 
 def test_the_same_file_twice_is_a_duplicate_and_the_less_used_copy_is_the_one_to_clean_up(client, login):
-    text = "Quarterly vendor review checklist.\n\n" + " ".join(f"Item {i}: confirm the vendor contract and invoices." for i in range(30))
+    items = " ".join(f"Item {i}: confirm the vendor contract and invoices." for i in range(30))
+    text = "Quarterly vendor review checklist.\n\n" + items
     # Different teams that can't see each other's internal files can upload the same file.
     hr_copy = _upload(client, login("neha"), text, filename="vendor-review.md", title="Vendor review (HR)")
     sales_copy = _upload(client, login("karan"), text, filename="vendor-review.md", title="Vendor review (Sales)")
@@ -161,7 +162,8 @@ def test_old_documents_people_still_use_and_unused_ones_are_suggested_for_clean_
     assert by_doc[conduct]["kind"] == "unused"
     assert by_doc[conduct]["why"] == "Nobody opened it or got it in an answer in the last 90 days."
     # Something added recently isn't "unused" yet.
-    fresh = _upload(client, login("rohan"), "Brand new page about the build cache. " * 20, filename="cache.md", title="Build cache")
+    page = "Brand new page about the build cache. " * 20
+    fresh = _upload(client, login("rohan"), page, filename="cache.md", title="Build cache")
     assert fresh not in {c["doc_id"] for c in _map(client, login("dev"))["cleanup"]}
 
 

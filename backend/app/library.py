@@ -252,15 +252,13 @@ def overview(db: Session, days: int = 90, now: datetime | None = None) -> dict:
             if d is keep:
                 continue
             if g["kind"] == "same_file":
-                why = (
-                    f"The same file as “{keep.title}”. Search shows both, and if one is updated, "
-                    "answers can quote the other."
-                )
+                why = f"The same file as “{keep.title}”. Search shows both, and if one is updated, answers can quote the other."
             else:
                 older = _aware(d.updated_at) <= _aware(keep.updated_at)
+                pct = round(best.get((min(d.id, keep.id), max(d.id, keep.id)), g["similarity"]) * 100)
                 why = (
-                    f"Almost the same text as “{keep.title}” (about {round(best.get(tuple(sorted((d.id, keep.id))), g['similarity']) * 100)}% "
-                    f"the same){', and older' if older else ''}. Answers can quote either; keep the right one."
+                    f"Almost the same text as “{keep.title}” (about {pct}% the same)"
+                    f"{', and older' if older else ''}. Answers can quote either; keep the right one."
                 )
             cleanup.append({"kind": g["kind"], "doc_id": d.id, "keep_id": keep.id, "why": why})
     flagged = {c["doc_id"] for c in cleanup}
@@ -314,9 +312,7 @@ def overview(db: Session, days: int = 90, now: datetime | None = None) -> dict:
             "compared": sum(1 for d in docs if d.id in _sketches),
         },
         "truncated": len(docs) > LIMIT,
-        "kinds": sorted(
-            ({"kind": k, "label": KINDS[k], **v} for k, v in kinds.items()), key=lambda k: (-k["bytes"], k["kind"])
-        ),
+        "kinds": sorted(({"kind": k, "label": KINDS[k], **v} for k, v in kinds.items()), key=lambda k: (-k["bytes"], k["kind"])),
         "teams": [{"id": t.id, "name": t.name} for t in db.scalars(select(Team).order_by(Team.name))],
         "sources": [{"id": s.id, "name": s.name, "kind": s.kind} for s in db.scalars(select(Source).order_by(Source.name))],
         "documents": [
