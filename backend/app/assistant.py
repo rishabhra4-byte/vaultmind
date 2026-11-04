@@ -21,6 +21,7 @@ Every reply says how it was made:
   ai       written by the model from the passages it was given
   offline  built from matching passages, without the model
   direct   prepared by VaultMind from its own records (versions, a template), without the model
+  verified an answer an owner approved for this question (app/verified.py), shown as written
 """
 
 import contextvars
@@ -87,7 +88,7 @@ QUICK = {  # the question shown for each quick action on a document
 @dataclass
 class Reply:
     content: str
-    mode: str  # ai | offline | direct (see the module docstring)
+    mode: str  # ai | offline | direct | verified (see the module docstring)
     citations: list[dict] = field(default_factory=list)
     locked: list[dict] = field(default_factory=list)
     suggestions: list[dict] = field(default_factory=list)
@@ -102,6 +103,7 @@ class Reply:
     # Whether the documents hold enough to answer: {"enough": bool, "coverage": 0.8, "missing": ["dental"]}
     evidence: dict = field(default_factory=dict)
     conflicts: list[dict] = field(default_factory=list)  # documents that disagree about what was asked
+    verified: dict = field(default_factory=dict)  # a verified answer: who verified it, when (app/verified.py)
 
     @property
     def meta(self) -> dict:
@@ -110,7 +112,7 @@ class Reply:
             meta["fallback"] = {"reason": self.fallback_reason, "message": REASONS[self.fallback_reason]}
         if self.intent != "ask":
             meta["intent"] = self.intent
-        for key in ("notice", "ai_blocked", "search", "actions", "changes", "evidence", "conflicts"):
+        for key in ("notice", "ai_blocked", "search", "actions", "changes", "evidence", "conflicts", "verified"):
             value = getattr(self, key)
             if value:
                 meta[key] = value
@@ -1167,4 +1169,26 @@ def _respond(
         named = _named_document(view, question)  # "summarise the expense policy"
         if named and (filters is None or filters.matches(named[0])):
             return _answer_about_document(db, view, named[0], question, _doc_intent(question, None), history, llm)
+    if intent is None:
+        from . import verified
+
+        va = verified.find(db, view, question, filters)
+        if va is not None:
+            return _answer_verified(view, va)
     return _answer_question(db, view, question, history, llm, filters)
+
+
+def _answer_verified(view: AccessView, va) -> Reply:
+    """An answer an owner approved for this question: shown as written, with its sources and who
+    verified it. `verified.find` has already checked the person can open every source."""
+    from . import verified
+
+    cards = [_doc_card(view.docs[d], view=view) for d in va.doc_ids]
+    return Reply(
+        va.answer,
+        "verified",
+        cards,
+        hits=len(cards),
+        evidence={"enough": True, "coverage": 1.0},
+        verified=verified.card(va),
+    )

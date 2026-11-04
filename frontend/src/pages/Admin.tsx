@@ -5,11 +5,15 @@ import Glossary from "./admin/Glossary";
 import Groups from "./admin/Groups";
 import Overview from "./admin/Overview";
 import People from "./admin/People";
+import Review from "./admin/Review";
 import Sources from "./admin/Sources";
 import Teams from "./admin/Teams";
+import Verified from "./admin/Verified";
 
 const TABS: [string, string][] = [
   ["", "Overview"],
+  ["review", "Fix answers"],
+  ["verified", "Verified answers"],
   ["people", "People"],
   ["teams", "Teams"],
   ["groups", "Groups"],
@@ -25,7 +29,7 @@ export default function Admin() {
       <header className="page-head">
         <div>
           <h1>Admin</h1>
-          <p className="muted">People, where documents come from, and what people ask.</p>
+          <p className="muted">People, where documents come from, what people ask, and how well it answers.</p>
         </div>
       </header>
       <nav className="admin-tabs" aria-label="Admin sections">
@@ -37,6 +41,8 @@ export default function Admin() {
       </nav>
       <Routes>
         <Route index element={<Overview />} />
+        <Route path="review" element={<Review />} />
+        <Route path="verified" element={<Verified />} />
         <Route path="people" element={<People />} />
         <Route path="teams" element={<Teams />} />
         <Route path="groups" element={<Groups />} />

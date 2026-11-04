@@ -455,6 +455,53 @@ class AnswerFeedback(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class ReviewCase(Base):
+    """A real question an administrator has looked at, from the fix-it queue: what the right
+    answer comes from (or that nothing answers it), and whether the assistant gets it right
+    now. Checked as the person who asked, so the same documents are in scope; administrators
+    never see who that was."""
+
+    __tablename__ = "review_cases"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(320), unique=True)  # the question, normalised
+    question: Mapped[str] = mapped_column(Text)
+    asked_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(20), default="resolved")  # resolved | dismissed
+    expect: Mapped[str] = mapped_column(String(20), default="answer")  # answer | abstain
+    doc_ids: Mapped[list] = mapped_column(JSON, default=list)
+    says: Mapped[list] = mapped_column(JSON, default=list)  # words the answer must contain
+    note: Mapped[str] = mapped_column(Text, default="")
+    resolved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    resolved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_check: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class VerifiedAnswer(Base):
+    """An answer an owner has approved for a common question. Shown first, with who verified it
+    and when, to people who can open every one of its sources, while it's current: reviewed
+    within `review_days`, and no source has a newer version than when it was verified."""
+
+    __tablename__ = "verified_answers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    question: Mapped[str] = mapped_column(Text)
+    phrasings: Mapped[list] = mapped_column(JSON, default=list)  # other ways people ask it
+    answer: Mapped[str] = mapped_column(Text)
+    doc_ids: Mapped[list] = mapped_column(JSON, default=list)
+    doc_versions: Mapped[dict] = mapped_column(JSON, default=dict)  # {doc id: version when verified}
+    owner_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), index=True)
+    verified_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    review_days: Mapped[int] = mapped_column(Integer, default=90)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    owner_team: Mapped[Team] = relationship()
+    verified_by: Mapped["User | None"] = relationship(foreign_keys=[verified_by_id])
+
+
 class AssistantAction(Base):
     """Something the assistant offered to do (request access, share, save a summary).
 

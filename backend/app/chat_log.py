@@ -38,6 +38,8 @@ def record_exchange(
         hits=reply.hits,
         document_id=document_id,
         fallback=reply.fallback_reason,
+        enough=(reply.evidence or {}).get("enough"),
+        verified=(reply.verified or {}).get("id"),
         cited=[c["id"] for c in reply.citations],
         locked=[l["id"] for l in reply.locked],
         channel=channel,

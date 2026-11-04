@@ -213,8 +213,10 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   meta: {
-    /** ai: written by the model; offline: matching passages; direct: VaultMind's own records or a template. */
-    mode?: "ai" | "offline" | "direct";
+    /** ai: written by the model; offline: matching passages; direct: VaultMind's own records or a
+     *  template; verified: an answer an owner approved for this question. */
+    mode?: "ai" | "offline" | "direct" | "verified";
+    verified?: VerifiedInfo;
     intent?: string;
     citations?: DocCard[];
     locked?: LockedHint[];
@@ -424,4 +426,74 @@ export interface Insights {
     documents: number;
   }[];
   ai: { mode: "ai" | "offline"; documents_ai_off: number; sources_ai_off: number };
+}
+
+/** Who stands behind a verified answer. */
+export interface VerifiedInfo {
+  id: number;
+  question: string;
+  by: string;
+  team: string;
+  verified_at: string;
+  review_by: string;
+}
+
+export interface VerifiedAnswer extends VerifiedInfo {
+  answer: string;
+  phrasings: string[];
+  owner_team_id: number;
+  review_days: number;
+  active: boolean;
+  status: "current" | "due" | "changed" | "missing" | "off";
+  status_label: string;
+  sources: { id: number; title: string; changed: boolean }[];
+}
+
+/** A starting point for a verified answer, e.g. from an answer in a conversation. */
+export interface VerifiedDraft {
+  question: string;
+  answer?: string;
+  doc_ids: number[];
+}
+
+export interface DocRef {
+  id: number;
+  title: string;
+}
+
+export interface ReviewItem {
+  key: string;
+  question: string;
+  asked: number;
+  last: string;
+  why: { kind: "unhelpful" | "no_match" | "not_enough"; label: string; count: number }[];
+  notes: { reason: string; note: string }[];
+  answer: { mode: string; text: string; cited: DocRef[] } | null;
+}
+
+export interface ReviewCheck {
+  at?: string;
+  passed?: boolean | null;
+  problems?: string[];
+  got?: { mode: string; enough: boolean | null; cited: DocRef[]; locked: DocRef[]; text: string };
+}
+
+export interface ReviewCase {
+  id: number;
+  key: string;
+  question: string;
+  status: "resolved" | "dismissed";
+  expect: "answer" | "abstain";
+  docs: DocRef[];
+  says: string[];
+  note: string;
+  resolved_at: string;
+  check: ReviewCheck;
+}
+
+export interface ReviewQueue {
+  days: number;
+  summary: { open: number; resolved: number; dismissed: number; checked: number; passing: number };
+  open: ReviewItem[];
+  resolved: ReviewCase[];
 }

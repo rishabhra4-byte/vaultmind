@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { useApp } from "../state";
 import type { AnswerFeedback, AssistantAction, Conflict, DocCard, FeedbackReason, LockedHint, Message } from "../types";
@@ -7,6 +7,7 @@ import { ActionCard } from "./ActionCard";
 import { ClassTag, timeAgo } from "./bits";
 import {
   IconAlert,
+  IconCheck,
   IconCopy,
   IconExternal,
   IconFile,
@@ -37,7 +38,10 @@ export const MODE_LABEL: Record<string, string> = {
   ai: "Written by Claude from documents you can open",
   offline: "Offline answer: matching passages, no AI",
   direct: "Prepared by VaultMind without AI",
+  verified: "Verified answer",
 };
+
+const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 
 /** The offline answer states a disagreement in a fixed sentence; the callout below shows it instead. */
 const DISAGREE_LINE = /^These documents disagree: .*$/gm;
@@ -201,15 +205,19 @@ export function Bubble({
   onRequest,
   onUpdate,
   compact = false,
+  question,
 }: {
   message: Message;
   animate: boolean;
+  /** The question this answers, so an administrator can turn a good answer into a verified one. */
+  question?: string;
   /** Fallback for answers without an action card: open the classic request dialog. */
   onRequest: (l: LockedHint) => void;
   onUpdate: (m: Message) => void;
   compact?: boolean;
 }) {
-  const { notify } = useApp();
+  const { notify, user } = useApp();
+  const navigate = useNavigate();
   const { meta } = message;
   const conflicts = meta.conflicts ?? [];
   // Shown once, as the callout, rather than also as a sentence of the answer.
@@ -302,7 +310,7 @@ export function Bubble({
   const canSave =
     message.id > 0 && meta.mode !== "direct" && sources.length > 0 && !actions.some((a) => a.kind === "save_summary");
   return (
-    <div className={`msg msg-assistant-row ${compact ? "compact" : ""}`} aria-busy={!done}>
+    <div className={`msg msg-assistant-row ${compact ? "compact" : ""} ${meta.mode === "verified" ? "is-verified" : ""}`} aria-busy={!done}>
       <span className="bot-avatar">
         <IconSparkle />
       </span>
@@ -440,7 +448,27 @@ export function Bubble({
 
         {done && (
           <div className="msg-tools">
-            <span className={`answer-label ${meta.mode === "ai" ? "ai" : ""}`}>{MODE_LABEL[meta.mode ?? "offline"]}</span>
+            {meta.mode === "verified" && meta.verified ? (
+              <span className="answer-label verified">
+                <IconCheck width={14} height={14} /> Verified{meta.verified.by ? ` by ${meta.verified.by}` : ""} for {meta.verified.team},{" "}
+                {shortDate(meta.verified.verified_at)}
+              </span>
+            ) : (
+              <span className={`answer-label ${meta.mode === "ai" ? "ai" : ""}`}>{MODE_LABEL[meta.mode ?? "offline"]}</span>
+            )}
+            {user?.is_admin && question && message.id > 0 && meta.mode !== "verified" && meta.mode !== "direct" && sources.length > 0 && (
+              <button
+                className="link-btn small verify-btn"
+                title="Make this the verified answer to this question"
+                onClick={() =>
+                  navigate("/admin/verified", {
+                    state: { draft: { question, answer: message.content, doc_ids: sources.map((s) => s.id) } },
+                  })
+                }
+              >
+                <IconCheck width={14} height={14} /> Verify
+              </button>
+            )}
             {message.id > 0 && (
               <>
                 <button

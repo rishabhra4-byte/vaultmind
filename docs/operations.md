@@ -140,6 +140,37 @@ python -m app.cli export-feedback --out all.jsonl --all --days 30
 Each line is a draft case: fill in what the right answer is (`expect`, `docs`, `says`) before
 adding it to `backend/eval/cases.py`. Feedback is deleted with its conversation.
 
+## Fixing answers, and verified answers
+
+**Admin → Fix answers** is the queue for answer quality. It lists, from the last 90 days and
+without who asked: answers marked unhelpful (with the reason and note), questions nothing
+matched, and questions the documents didn't hold enough to answer. For each, say which
+documents answer it, optionally with words the answer must contain, or that nothing does.
+VaultMind then asks again **as the person who asked** (same documents in scope) and reports
+whether it's right now, and if not, why ("It didn't use “Expense Reimbursement Policy”").
+**Check them all again** after changing documents, the glossary or a setting; the score is the
+share of decided questions answered right. Checks use offline answers (the search, evidence
+check and verified answers people get), so they cost no AI calls and don't check the AI's
+wording. **Download cases** saves them as JSON lines with the asker's level and team, not
+their name.
+
+**Admin → Verified answers** holds approved answers to common questions. Add one there, from a
+decided question, or by pressing **Verify** under a good answer in the assistant. Each has an
+owning team, its sources, other ways people ask it, and a review period (30 to 365 days).
+Saving verifies it today, against the sources as they are. People get it first, marked with
+who verified it and when, if:
+
+- they can open every source (otherwise they get an ordinary answer, so it can't reveal what
+  a locked document says);
+- no source has a newer version, and the review date hasn't passed (otherwise it's shown as
+  needing review, people get an ordinary answer, and the verifier and administrators get a
+  notification; **Still right** verifies it again);
+- the question really is the same: words are weighed by how rare they are in your documents,
+  so "sick leave" doesn't match a verified answer about "earned leave". Add the other ways
+  people ask under **Other ways people ask it**.
+
+Verified answers use no AI calls. The public demo starts with two, verified by the HR associate.
+
 ## Search by meaning (optional)
 
 Off unless `VAULTMIND_EMBEDDINGS_URL` and `VAULTMIND_EMBEDDINGS_MODEL` are set. It finds

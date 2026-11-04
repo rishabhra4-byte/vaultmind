@@ -501,7 +501,8 @@ async function signOut(page) {
       await p.goto(BASE + '/');
       await p.click('.starter >> nth=1');
       await p.waitForSelector('.msg-tools .answer-label', { timeout: 10000 });
-      return (await p.textContent('.msg-tools .answer-label')).includes('Offline answer');
+      const label = await p.textContent('.msg-tools .answer-label');
+      return /Offline answer|Verified by/.test(label) || label;
     });
     await check('assistant: Stop cancels a slow answer and restores the question', async () => {
       await p.click('.threads button:has-text("New conversation")');
@@ -1099,6 +1100,85 @@ async function signOut(page) {
     await p.context().close();
   });
 
+  // ---------------------------------------------------------------- answer quality: verified answers, fix-it queue
+  await block('answer quality', async () => {
+    const ask = async (p, q) => {
+      const before = (await p.$$('.msg-tools')).length;
+      await p.fill('.composer textarea', q);
+      await p.click('.composer button[aria-label="Send"]');
+      await p.waitForFunction((n) => document.querySelectorAll('.msg-tools').length > n, before, { timeout: 15000 });
+    };
+    let p = await newPage(browser, 'aarav-quality');
+    await signIn(p, 'Aarav Mehta');
+    await check('verified: a verified answer says who verified it, for which team, and cites the paragraph', async () => {
+      await p.waitForSelector('.composer textarea');
+      await ask(p, 'What is the notice period?');
+      const r = await p.evaluate(() => ({
+        label: document.querySelector('.msg-tools .answer-label')?.textContent ?? '',
+        marked: !!document.querySelector('.msg-assistant-row.is-verified'),
+        cite: document.querySelector('.msg-assistant .cite')?.getAttribute('href') ?? '',
+      }));
+      return (r.label.includes('Verified by Neha Kapoor for Human Resources') && r.marked && /#p\d+$/.test(r.cite)) || JSON.stringify(r);
+    });
+    await check('verified: people who aren\'t admins see no Verify button', async () => (await p.$('.verify-btn')) === null);
+    await check('fix-it: an unhelpful answer can be marked with a reason', async () => {
+      await ask(p, 'Is there dental cover for my parents?');
+      await p.click('.msg-tools >> nth=-1 >> button[aria-label="Not helpful"]');
+      await p.waitForSelector('.feedback-form');
+      await p.click('.feedback-form label:has-text("should have said")');
+      await p.click('.feedback-form button:has-text("Send")');
+      await toast(p, 'Thanks');
+    });
+    await p.context().close();
+
+    p = await newPage(browser, 'dev-quality');
+    await signIn(p, 'Dev Patel');
+    await check('fix-it: the question is waiting, with why, and without who asked', async () => {
+      await p.goto(BASE + '/admin/review');
+      await p.waitForSelector('.review-item:has-text("dental cover for my parents")');
+      const card = await p.textContent('.review-item:has-text("dental cover for my parents")');
+      return (card.includes('Marked unhelpful') && card.includes("should have said") && !/Aarav|Mehta/.test(card)) || card;
+    });
+    await check('fix-it: "Nothing answers this" is saved and checked as the person who asked', async () => {
+      const item = p.locator('.review-item', { hasText: 'dental cover for my parents' });
+      await item.locator('button:has-text("Say what answers it")').click();
+      await item.locator('label:has-text("Nothing answers this")').click();
+      await item.locator('button:has-text("Save and check")').click();
+      await p.waitForSelector('.review-case:has-text("dental cover for my parents") .status-pill');
+      const pill = await p.textContent('.review-case:has-text("dental cover for my parents") .status-pill');
+      const waiting = await p.$('.review-item:has-text("dental cover for my parents")');
+      return (pill === 'Answered right' && waiting === null) || pill;
+    });
+    await check('fix-it: the score counts decided questions answered right', async () => {
+      const t = await p.textContent('.review-score');
+      return /100%/.test(t) || t;
+    });
+    await check('verified: the list shows each answer, who verified it, and that it is current', async () => {
+      await p.goto(BASE + '/admin/verified');
+      await p.waitForSelector('.verified-card');
+      const cards = await p.$$eval('.verified-card', (els) => els.map((e) => e.textContent));
+      return (cards.length >= 2 && cards.every((c) => c.includes('Current') && c.includes('Neha Kapoor'))) || cards.join(' | ');
+    });
+    await check('verified: an admin turns a good answer into a verified one, and the next person gets it', async () => {
+      await p.goto(BASE + '/');
+      await p.waitForSelector('.composer textarea');
+      await ask(p, 'How much does the company pay towards home internet?');
+      await p.click('.msg-tools >> nth=-1 >> .verify-btn');
+      await p.waitForSelector('dialog[open] .doc-picker-chosen .tag');
+      const q = await p.inputValue('dialog[open] input[maxlength="300"]');
+      await p.click('dialog[open] button:has-text("Save and verify")');
+      await toast(p, 'Verified answer added');
+      const other = await newPage(browser, 'priya-quality');
+      await signIn(other, 'Priya Sharma');
+      await other.waitForSelector('.composer textarea');
+      await ask(other, 'How much does the company pay towards home internet?');
+      const label = await other.textContent('.msg-tools >> nth=-1 >> .answer-label');
+      await other.context().close();
+      return (q.includes('home internet') && label.includes('Verified by Dev Patel')) || `${q} / ${label}`;
+    });
+    await p.context().close();
+  });
+
   // ---------------------------------------------------------------- responsive sweep + axe
   const widths = [320, 360, 390, 768, 1024, 1280, 1440, 1920];
   const pages = [
@@ -1109,6 +1189,8 @@ async function signOut(page) {
     ['document', '/library/6', 'Rohan Iyer'],
     ['requests', '/requests', 'Rohan Iyer'],
     ['how-it-works', '/how-it-works', 'Rohan Iyer'],
+    ['admin-review', '/admin/review', 'Dev Patel'],
+    ['admin-verified', '/admin/verified', 'Dev Patel'],
     ['document-ask', '/library/6', 'Rohan Iyer', async (p) => {
       await p.click('button:has-text("Ask about this document")');
       await p.waitForSelector('.ask-drawer');

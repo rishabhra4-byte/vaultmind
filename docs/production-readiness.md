@@ -575,3 +575,37 @@ showed `&amp;` for "&".
 | I-D3 | **Office files from Microsoft Office itself**, and Google's Excel/PowerPoint export through the real Drive API | Tested with files from other tools and a stand-in Drive | Upload a few real company spreadsheets and decks; sync a Drive folder holding a Sheet with several tabs |
 | I-D4 | **Answer quality in AI mode** | Same as H-D5 | The *Answer quality with AI* workflow |
 
+
+---
+
+## J. Answers people can trust: a fix-it queue and verified answers (4 November 2026)
+
+### J1. What was added
+
+- **Fix-it queue** (**Admin → Fix answers**): answers marked unhelpful and questions nothing
+  matched or answered well, grouped by question, without who asked. An administrator says
+  which documents answer each one (and words the answer must contain) or that nothing does;
+  VaultMind asks again as the person who asked and reports whether it's right, and why not.
+  The decided questions are a benchmark made of the company's own questions, with a score.
+- **Verified answers** (**Admin → Verified answers**, or **Verify** under an answer): approved
+  answers to common questions, shown first with who verified them and when, with their sources.
+
+### J2. Risks, and how they're handled
+
+| # | Risk | How it's handled | Proven by |
+|---|---|---|---|
+| J-S1 | A verified answer reveals a document the person can't open | Shown only to people who can open every source; everyone else gets an ordinary answer | `test_people_who_cant_open_every_source_never_see_it` |
+| J-S2 | A verified answer goes stale | Not shown as verified once a source has a new version, a source is deleted, or the review date passes; the verifier and administrators are notified once per change | `test_a_changed_source_or_a_passed_review_date_stops_it_and_reminds_the_owners` |
+| J-S3 | A different question gets someone else's verified answer | Words are weighed by how rare they are in the documents: "sick leave" and "parental leave" don't match "earned leave"; filters that exclude the sources skip it | `test_a_different_question_with_shared_words_gets_an_ordinary_answer`, `test_filters_that_exclude_its_sources_skip_it` |
+| J-S4 | The queue exposes who asked what | Grouped by question with no names; checks run as the asker without showing who; the download gives level and team only | `test_unhelpful_and_unanswered_questions_are_queued_without_who_asked`, browser audit |
+| J-S5 | A wrong verified answer | Only administrators can create them; a cited document must be one of its sources; a question needs at least two meaningful words | `test_bad_verified_answers_are_refused` |
+
+### J3. Tests run and their results (4 November)
+
+| What | Result |
+|---|---|
+| Backend tests, SQLite | **295 passed**, 5 skipped (the live Claude checks, which need a key) |
+| Backend tests, PostgreSQL 16 | **295 passed**, 5 skipped, no warnings |
+| Answer-quality benchmark, `--check` | **No regressions** (it measures search and answers; the demo's verified answers aren't part of it) |
+| Browser audit (Chromium, local) | **550 of 550**, 0 console or network problems; new: a verified answer's label and paragraph citation, no Verify button for non-admins, marking an answer unhelpful, the queue without names, deciding a question and its check, the score, the verified list, and verifying an answer in the assistant so the next person gets it |
+| Accessibility review | 24 of 24 |

@@ -139,6 +139,10 @@ def to_slack(reply: Reply, conversation_id: int) -> str:
         "offline": "Offline answer: matching passages, no AI",
         "direct": "Prepared by VaultMind without AI",
     }.get(reply.mode, "")
+    if reply.mode == "verified" and reply.verified:
+        v = reply.verified
+        by = f" by {_escape(v['by'])}" if v.get("by") else ""
+        label = f"Verified answer{by} for {_escape(v['team'])}, {v['verified_at'][:10]}"
     carry_on = link(f"/?c={conversation_id}", "Continue in VaultMind")
     if reply.actions:
         carry_on = link(f"/?c={conversation_id}", "Open VaultMind to confirm")
