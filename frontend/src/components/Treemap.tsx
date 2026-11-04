@@ -156,17 +156,34 @@ export function Treemap({
           </svg>
         )
       )}
-      {tip && <Tip cell={tip.cell} x={tip.x} y={tip.y} width={width} sizeBy={sizeBy} total={root.value} />}
+      {tip && <Tip cell={tip.cell} x={tip.x} y={tip.y} width={width} height={height} sizeBy={sizeBy} total={root.value} />}
     </div>
   );
 }
 
-function Tip({ cell, x, y, width, sizeBy, total }: { cell: Cell; x: number; y: number; width: number; sizeBy: SizeBy; total: number }) {
+function Tip({
+  cell,
+  x,
+  y,
+  width,
+  height,
+  sizeBy,
+  total,
+}: {
+  cell: Cell;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  sizeBy: SizeBy;
+  total: number;
+}) {
   const n = cell.node;
   const d = n.doc;
   const left = x > width - 260 ? Math.max(8, x - 252) : x + 14;
   return (
-    <div className="tm-tip" style={{ left, top: y + 16 }} role="presentation">
+    // Above the pointer near the bottom, so the map's edge doesn't cut it off.
+    <div className="tm-tip" style={y > height - 100 ? { left, bottom: height - y + 12 } : { left, top: y + 16 }} role="presentation">
       <strong>{amount(n.value, sizeBy)}</strong>
       <span className="muted"> · {share(n.value, total)} of this view</span>
       <div className="tm-tip-name">{n.name}</div>
