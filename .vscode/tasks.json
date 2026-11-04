@@ -22,7 +22,7 @@
       "isBackground": true,
       "problemMatcher": {
         "pattern": { "regexp": "^ERROR:\\s+(.*)$", "message": 1 },
-        "background": { "activesBegin": "Will watch for changes", "activesEnd": "Application startup complete" }
+        "background": { "beginsPattern": "Will watch for changes", "endsPattern": "Application startup complete" }
       }
     },
     {
@@ -34,7 +34,7 @@
       "isBackground": true,
       "problemMatcher": {
         "pattern": { "regexp": "^\\s*error\\s+(.*)$", "message": 1 },
-        "background": { "activesBegin": "VITE", "activesEnd": "Local:" }
+        "background": { "beginsPattern": "VITE", "endsPattern": "Local:" }
       }
     },
     {
