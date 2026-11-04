@@ -96,26 +96,29 @@ def access_view(db: Session, user: User) -> AccessView:
 
 
 def index_document(doc: Document) -> None:
-    from . import embeddings
+    from . import embeddings, library
 
     index.add_document(doc.id, doc.title, doc.tags or [], [(c.id, c.text, c.ordinal) for c in doc.chunks])
     title_index.add_document(doc.id, "", [], [(doc.id, doc.title, 0)])
+    library.remember(doc.id, [c.text for c in doc.chunks])  # to find documents with almost the same text
     embeddings.forget_document(doc)  # new passages get vectors in the background
 
 
 def unindex_document(doc_id: int) -> None:
-    from . import embeddings
+    from . import embeddings, library
 
     index.remove_document(doc_id)
     title_index.remove_document(doc_id)
+    library.forget(doc_id)
     embeddings.vectors.keep_only(doc_id, set())
 
 
 def rebuild_index(db: Session) -> int:
-    from . import embeddings
+    from . import embeddings, library
 
     index.clear()
     title_index.clear()
+    library.forget()
     docs = db.scalars(select(Document).options(selectinload(Document.chunks))).all()
     for doc in docs:
         index_document(doc)

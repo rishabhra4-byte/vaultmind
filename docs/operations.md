@@ -171,6 +171,35 @@ who verified it and when, if:
 
 Verified answers use no AI calls. The public demo starts with two, verified by the HR associate.
 
+## The library map
+
+**Admin → Library map** shows every document as a rectangle in a treemap, its area by file
+size (or by passages, what search reads, or by how often it was opened or used in answers),
+grouped by team, then source and folder (uploads sit directly under their team). Colour it by
+file type, classification or when it was last updated; the list beside it gives each colour's
+documents and size, and clicking one picks those out. Click a group's name (or focus it and
+press Enter) to zoom in; the breadcrumb goes back. **Find** picks out documents by title or
+folder.
+
+The lists below the map:
+
+- **In <folder>**: what's directly inside the current group, largest first, with its share.
+- **Largest**: the 25 largest files in the current group.
+- **Duplicates**: the same file more than once (same SHA-256), and documents whose text is
+  almost the same (an estimated 80% or more of their five-word runs in common: an old copy of a
+  policy, or a PDF and the Word file it came from). Documents under 40 words aren't compared.
+  Files are stored by content, so a copy takes no extra room; the cost is in answers, which
+  can quote the outdated one.
+- **Clean up**: extra copies (keep the one people use most; an uploaded copy can be deleted
+  from here, a synced one in its source), near-duplicates to settle, documents not updated
+  for a year that people still open or get in answers (check they're still right), and
+  documents nobody opened or got in an answer during the period (older than the period).
+
+Opens and answers are counted over the period chosen (30 to 365 days). Nothing is deleted
+except by pressing **Delete this copy** and confirming. The map draws up to 20,000 documents
+(the largest); totals, duplicates and clean-up cover all of them. The near-duplicate sketches
+are kept in memory with the search index and rebuilt with it at start-up.
+
 ## Search by meaning (optional)
 
 Off unless `VAULTMIND_EMBEDDINGS_URL` and `VAULTMIND_EMBEDDINGS_MODEL` are set. It finds

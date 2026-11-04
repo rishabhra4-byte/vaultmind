@@ -1179,6 +1179,111 @@ async function signOut(page) {
     await p.context().close();
   });
 
+  // ---------------------------------------------------------------- library map (after WinDirStat)
+  await block('library map', async () => {
+    // Two teams that can't see each other's internal files upload the same file: a duplicate.
+    const same = 'Quarterly vendor review checklist.\n\n' + Array.from({ length: 30 }, (_, i) => `Item ${i}: confirm the vendor contract and invoices.`).join(' ');
+    const upload = async (who, title) => {
+      const r = await fetch(`${BASE}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: `${who}@northwind.example`, password: 'demo1234' }) });
+      const token = (await r.json()).access_token;
+      const form = new FormData();
+      form.append('file', new Blob([same], { type: 'text/markdown' }), 'vendor-review.md');
+      form.append('classification', 'internal');
+      form.append('title', title);
+      const up = await fetch(`${BASE}/api/documents`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
+      if (up.status !== 201) throw new Error(`upload as ${who}: ${up.status} ${await up.text()}`);
+      return (await up.json()).document.id;
+    };
+    const copies = [await upload('neha', 'Vendor review (HR)'), await upload('karan', 'Vendor review (Sales)')];
+    const p = await newPage(browser, 'dev-library-map');
+    await signIn(p, 'Dev Patel');
+    const api = (path) =>
+      p.evaluate(async (path) => (await fetch(path, { headers: { Authorization: `Bearer ${localStorage.getItem('vaultmind.token')}` } })).json(), path);
+    const toBytes = (t) => {
+      const m = /([\d.]+)\s*(B|KB|MB|GB)/.exec(t);
+      return m ? Number(m[1]) * 1024 ** ['B', 'KB', 'MB', 'GB'].indexOf(m[2]) : NaN;
+    };
+
+    await check('library map: every document is a rectangle in the treemap', async () => {
+      await p.goto(BASE + '/admin/library');
+      await p.waitForSelector('.tm-doc');
+      const data = await api('/api/admin/library');
+      const drawn = await p.$$eval('.tm-doc', (els) => els.length);
+      return drawn === data.documents.filter((d) => d.bytes > 0).length || `${drawn} drawn of ${data.documents.length}`;
+    });
+    await check('library map: the file-type list uses the treemap colours, and picking a type highlights just those', async () => {
+      const row = p.locator('.lib-legend-row').first();
+      const n = Number(/(\d+) documents?/.exec(await row.textContent())[1]);
+      const tone = (await row.locator('.swatch').getAttribute('class')).split(' ').find((c) => c.startsWith('tone-'));
+      await row.click();
+      const lit = await p.$$eval('.tm-doc:not(.dim)', (els) => els.map((e) => e.getAttribute('class')));
+      await row.click(); // and off again
+      const pressed = await row.getAttribute('aria-pressed');
+      return (lit.length === n && lit.every((c) => c.includes(tone)) && pressed === 'false') || `${lit.length} lit of ${n}, ${tone}`;
+    });
+    await check('library map: zoom into a team from the keyboard, and back out from the breadcrumb', async () => {
+      const group = p.locator('.tm-group[role=button]').first();
+      const name = (await group.getAttribute('aria-label')).replace(/^Zoom into (.*?), \d+ documents.*$/, '$1');
+      await group.focus();
+      await p.keyboard.press('Enter');
+      await p.waitForSelector(`.lib-crumbs [aria-current]:has-text("${name}")`);
+      const inside = await p.textContent('[role=tab] >> nth=0');
+      await p.click('.lib-crumbs button:has-text("Whole library")');
+      await p.waitForSelector('.lib-crumbs [aria-current]:has-text("Whole library")');
+      return inside === `In ${name}` || inside;
+    });
+    await check('library map: clicking a document shows its details and a link to open it', async () => {
+      await p.click('.tm-doc >> nth=0');
+      const href = await (await p.waitForSelector('.lib-detail a[href^="/library/"]')).getAttribute('href');
+      const t = await p.textContent('.lib-detail');
+      return (/\d+ (B|KB|MB)/.test(t) && /passage/.test(t) && /in the last 90 days/.test(t) && /^\/library\/\d+$/.test(href)) || t;
+    });
+    await check('library map: finding by title highlights just the matches', async () => {
+      await p.fill('.lib-find input', 'handbook');
+      await p.waitForSelector('.lib-crumbs :text("found")');
+      const n = Number(/(\d+) found/.exec(await p.textContent('.lib-crumbs'))[1]);
+      const lit = await p.$$eval('.tm-doc:not(.dim)', (els) => els.length);
+      await p.fill('.lib-find input', '');
+      await p.waitForFunction(() => !document.querySelector('.tm-doc.dim'));
+      return (n >= 1 && lit === n) || `${n} found, ${lit} lit`;
+    });
+    await check('library map: the largest files are listed largest first', async () => {
+      await p.click('[role=tab]:has-text("Largest")');
+      const sizes = (await p.$$eval('#lib-panel-largest tbody td.num', (els) => els.map((e) => e.textContent))).map(toBytes);
+      return (sizes.length > 5 && sizes.every((s, i) => i === 0 || s <= sizes[i - 1])) || sizes.join(', ');
+    });
+    await check('library map: the list tabs move with the arrow keys', async () => {
+      await p.focus('[role=tab][aria-selected="true"]');
+      await p.keyboard.press('ArrowRight');
+      const t = await p.evaluate(() => [document.activeElement.textContent, document.activeElement.getAttribute('aria-selected')]);
+      return (t[0].startsWith('Duplicates') && t[1] === 'true') || t.join(' / ');
+    });
+    await check('library map: the same file uploaded by two teams shows as one duplicate set', async () => {
+      const set = await p.waitForSelector('.lib-dup:has-text("Vendor review (HR)")');
+      const t = await set.textContent();
+      return (t.includes('The same file') && t.includes('Vendor review (Sales)')) || t;
+    });
+    await check('library map: clean up offers to delete the extra copy, and deleting it clears the duplicate', async () => {
+      await p.click('[role=tab]:has-text("Clean up")');
+      const item = p.locator('.lib-clean-item', { hasText: 'Vendor review' });
+      const extra = await item.locator('a').textContent();
+      await item.locator('button:has-text("Delete…")').click();
+      await item.locator('button:has-text("Delete this copy")').click();
+      await toast(p, 'Deleted that copy');
+      await p.waitForFunction(() => ![...document.querySelectorAll('.lib-clean-item')].some((e) => e.textContent.includes('Vendor review')));
+      const data = await api('/api/admin/library');
+      const left = data.documents.filter((d) => copies.includes(d.id)).map((d) => d.title);
+      return (data.duplicates.length === 0 && left.length === 1 && left[0] !== extra) || `${extra} / ${left} / ${JSON.stringify(data.duplicates)}`;
+    });
+    await check('library map: people who aren\'t admins can\'t load it', async () => {
+      const r = await fetch(`${BASE}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'meera@northwind.example', password: 'demo1234' }) });
+      const token = (await r.json()).access_token;
+      const res = await fetch(`${BASE}/api/admin/library`, { headers: { Authorization: `Bearer ${token}` } });
+      return res.status === 403 || String(res.status);
+    });
+    await p.context().close();
+  });
+
   // ---------------------------------------------------------------- responsive sweep + axe
   const widths = [320, 360, 390, 768, 1024, 1280, 1440, 1920];
   const pages = [
@@ -1191,6 +1296,7 @@ async function signOut(page) {
     ['how-it-works', '/how-it-works', 'Rohan Iyer'],
     ['admin-review', '/admin/review', 'Dev Patel'],
     ['admin-verified', '/admin/verified', 'Dev Patel'],
+    ['admin-library', '/admin/library', 'Dev Patel'],
     ['document-ask', '/library/6', 'Rohan Iyer', async (p) => {
       await p.click('button:has-text("Ask about this document")');
       await p.waitForSelector('.ask-drawer');
