@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FileKind } from "../types";
-import { amount, colorClass, KIND_LABELS, layout, share, type Cell, type ColorBy, type SizeBy, type TNode } from "./libraryTree";
+import { amount, colorClass, HEADER, KIND_LABELS, layout, share, type Cell, type ColorBy, type SizeBy, type TNode } from "./libraryTree";
 
 const KIND_LABEL: Record<string, string> = {
   team: "Team",
@@ -105,26 +105,28 @@ export function Treemap({
     }
     const title = c.header ? fit(`${c.node.name} · ${amount(c.node.value, sizeBy)}`, w, 6.6) : "";
     return (
-      <g
-        key={c.node.key}
-        data-i={i}
-        className="tm-group"
-        // Groups with a visible name can be zoomed into from the keyboard too.
-        tabIndex={c.header ? 0 : undefined}
-        role={c.header ? "button" : undefined}
-        aria-label={c.header ? `Zoom into ${c.node.name}, ${c.node.docs} documents, ${amount(c.node.value, sizeBy)}` : undefined}
-        onKeyDown={(e) => {
-          if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
-            e.preventDefault();
-            onZoom(c.path);
-          }
-        }}
-      >
+      <g key={c.node.key} data-i={i} className="tm-group">
         <rect className="tm-group-box" x={x + 1} y={y + 1} width={Math.max(0, w - 2)} height={Math.max(0, h - 2)} rx={4} />
-        {title && (
-          <text x={x + 7} y={y + 13}>
-            {title}
-          </text>
+        {c.header && (
+          // The name band zooms in, from the keyboard too. It's a sibling of what's inside the
+          // group, so no control sits inside another.
+          <g
+            className="tm-zoom"
+            tabIndex={0}
+            role="button"
+            aria-label={`Zoom into ${c.node.name}, ${c.node.docs} documents, ${amount(c.node.value, sizeBy)}`}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onZoom(c.path);
+              }
+            }}
+          >
+            <rect className="tm-head" x={x + 1} y={y + 1} width={Math.max(0, w - 2)} height={HEADER - 2} rx={4} />
+            <text x={x + 7} y={y + 13}>
+              {title}
+            </text>
+          </g>
         )}
         {(inside.get(i) ?? []).map(draw)}
       </g>

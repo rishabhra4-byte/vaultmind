@@ -180,7 +180,7 @@ export interface Cell {
   header: boolean; // a group with room for its name across the top
 }
 
-const HEADER = 18;
+export const HEADER = 18;
 const PAD = 3;
 
 /** Every rectangle to draw, groups before what's inside them; each knows the group it's in, so

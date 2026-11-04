@@ -1222,7 +1222,7 @@ async function signOut(page) {
       return (lit.length === n && lit.every((c) => c.includes(tone)) && pressed === 'false') || `${lit.length} lit of ${n}, ${tone}`;
     });
     await check('library map: zoom into a team from the keyboard, and back out from the breadcrumb', async () => {
-      const group = p.locator('.tm-group[role=button]').first();
+      const group = p.locator('.tm-zoom').first();
       const name = (await group.getAttribute('aria-label')).replace(/^Zoom into (.*?), \d+ documents.*$/, '$1');
       await group.focus();
       await p.keyboard.press('Enter');

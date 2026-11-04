@@ -5453,14 +5453,19 @@ kbd,
 .tm-group-box:hover {
   fill: color-mix(in srgb, var(--ink) 9%, transparent);
 }
-.tm-group:focus {
+.tm-head {
+  fill: transparent;
+  cursor: zoom-in;
+}
+.tm-zoom:focus {
   outline: none;
 }
-.tm-group:focus-visible > .tm-group-box {
+.tm-zoom:focus-visible > .tm-head,
+.tm-group:has(> .tm-zoom:focus-visible) > .tm-group-box {
   stroke: var(--primary);
   stroke-width: 2;
 }
-.tm-group > text {
+.tm-zoom > text {
   fill: var(--ink-2);
   font-weight: 600;
   pointer-events: none;
