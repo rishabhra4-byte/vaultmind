@@ -27,3 +27,8 @@ frontend/dist/
 !.vscode/extensions.json
 .idea/
 *.tsbuildinfo
+
+# VS Code extension build output
+vscode/out/
+vscode/node_modules/
+vscode/*.vsix

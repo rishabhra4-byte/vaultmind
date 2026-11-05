@@ -21,6 +21,7 @@ const DocumentPage = lazyPage(() => import("./pages/DocumentPage"));
 const Library = lazyPage(() => import("./pages/Library"));
 const Requests = lazyPage(() => import("./pages/Requests"));
 const HowItWorks = lazyPage(() => import("./pages/HowItWorks"));
+const Connect = lazyPage(() => import("./pages/Connect"));
 
 /** Signed out on an app page: sign in, then come back here. */
 function SignInFirst() {
@@ -45,7 +46,7 @@ function App() {
         <Route path="/" element={endedReason ? <SignInFirst /> : <Landing />} />
         <Route path="/signin" element={<Login />} />
         {/* App pages need an account; anything else is a genuine 404. */}
-        {["/library/*", "/requests", "/admin/*", "/how-it-works"].map((p) => (
+        {["/library/*", "/requests", "/admin/*", "/how-it-works", "/connect"].map((p) => (
           <Route key={p} path={p} element={<SignInFirst />} />
         ))}
         <Route path="*" element={<NotFound />} />
@@ -63,6 +64,7 @@ function App() {
             <Route path="library/:id" element={<DocumentPage />} />
             <Route path="requests" element={<Requests />} />
             <Route path="how-it-works" element={<HowItWorks />} />
+            <Route path="connect" element={<Connect />} />
             {user.is_admin && <Route path="admin/*" element={<Admin />} />}
             <Route path="*" element={<NotFound />} />
           </Route>
