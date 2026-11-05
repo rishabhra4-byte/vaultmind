@@ -21,6 +21,7 @@ from .routers import (
     admin,
     assistant,
     auth,
+    device,
     directory,
     documents,
     glossary,
@@ -191,6 +192,7 @@ async def security_headers(request: Request, call_next):
 
 for r in (
     auth.router,
+    device.router,
     documents.router,
     assistant.router,
     access.router,

@@ -4,7 +4,12 @@ import { useApp } from "../state";
 import type { SignedInSession } from "../types";
 import { Modal, Skeleton, timeAgo } from "./bits";
 
-const METHOD: Record<string, string> = { password: "with a password", google: "with Google", microsoft: "with Microsoft" };
+const METHOD: Record<string, string> = {
+  password: "with a password",
+  google: "with Google",
+  microsoft: "with Microsoft",
+  editor: "by a code approved in the browser",
+};
 const MIN_PASSWORD = 12;
 
 /** Your account: where you're signed in (and signing those browsers out), and your password. */

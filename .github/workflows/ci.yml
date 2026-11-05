@@ -80,6 +80,30 @@ jobs:
         run: |
           if grep -rEl "sk-ant-|ANTHROPIC_API_KEY|EMBEDDINGS_API_KEY|JWT_SECRET" dist; then echo "Secret-like string found in the frontend bundle"; exit 1; fi
 
+  vscode:
+    name: vscode extension
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: vscode
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: vscode/package-lock.json
+      - run: npm ci
+      - name: Type check and unit tests
+        run: npm test
+      - name: Package
+        run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vaultmind-vscode
+          path: vscode/vaultmind-vscode.vsix
+
   e2e:
     name: e2e (${{ matrix.browser }})
     needs: [backend, frontend]
