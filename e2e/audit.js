@@ -165,8 +165,8 @@ async function signOut(page) {
       await q.waitForSelector('.ab-bar:has-text("Built")', { timeout: 15000 });
       const hero = await q.$$eval('.hero .bld', (els) => els.map((e) => e.dataset.build));
       const below = await q.$$eval('.feature-grid .bld', (els) => els.map((e) => e.dataset.build));
-      await q.mouse.wheel(0, 2600);
-      await q.waitForFunction(() => [...document.querySelectorAll('.feature-grid .bld')].some((e) => e.dataset.build !== 'waiting'), null, { timeout: 8000 });
+      await q.evaluate(() => window.scrollTo(0, document.querySelector('#features').getBoundingClientRect().top + window.scrollY - 80));
+      await q.waitForFunction(() => [...document.querySelectorAll('.feature-grid .bld')].some((e) => e.dataset.build !== 'waiting'), null, { timeout: 10000 });
       const cls = await q.evaluate(() => window.__cls);
       await q.context().close();
       return (/\d+×\d+/.test(tag) && hero.every((b) => b === 'built') && below.every((b) => b === 'waiting') && cls < 0.01) || JSON.stringify({ tag, hero, below, cls });
