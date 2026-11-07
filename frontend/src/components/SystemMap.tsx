@@ -199,8 +199,14 @@ export function SystemMap({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
 
   useEffect(() => {
     if (follow) focusOn(current.node);
-    const item = stepsRef.current?.children[step] as HTMLElement | undefined;
-    item?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    // Keep the current step in view in its own row, without scrolling the page.
+    const row = stepsRef.current;
+    const item = row?.children[step] as HTMLElement | undefined;
+    if (row && item) {
+      const left = item.getBoundingClientRect().left - row.getBoundingClientRect().left + row.scrollLeft;
+      if (left < row.scrollLeft) row.scrollLeft = left;
+      else if (left + item.offsetWidth > row.scrollLeft + row.clientWidth) row.scrollLeft = left + item.offsetWidth - row.clientWidth;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, routeId]);
 
