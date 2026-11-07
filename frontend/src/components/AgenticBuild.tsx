@@ -103,7 +103,7 @@ export function BuildProvider({ children }: { children: ReactNode }) {
       if (job.el.dataset.build === "built") continue;
       const r = job.el.getBoundingClientRect();
       const frame = job.el.querySelector<HTMLElement>(":scope > .bld-frame .bld-tag");
-      if (frame) frame.textContent = `${job.label} · ${Math.round(r.width)}×${Math.round(r.height)}`;
+      if (frame) frame.dataset.tag = `${job.label} · ${Math.round(r.width)}×${Math.round(r.height)}`; // drawn by CSS: decoration, not page text
       setStatus((s) => ({ ...s, doing: `${AGENTS[i].name} → ${job.label}` }));
       setCursor(i, {
         x: r.left + Math.min(28, r.width / 3),

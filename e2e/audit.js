@@ -160,8 +160,8 @@ async function signOut(page) {
       });
       await q.goto(BASE + '/');
       await q.waitForSelector('.ab-agent');
-      await q.waitForSelector('.bld[data-build="drawing"] .bld-tag');
-      const tag = await q.textContent('.bld[data-build="drawing"] .bld-tag');
+      await q.waitForSelector('.bld[data-build="drawing"] .bld-tag[data-tag]');
+      const tag = await q.getAttribute('.bld[data-build="drawing"] .bld-tag', 'data-tag');
       await q.waitForSelector('.ab-bar:has-text("Built")', { timeout: 15000 });
       const hero = await q.$$eval('.hero .bld', (els) => els.map((e) => e.dataset.build));
       const below = await q.$$eval('.feature-grid .bld', (els) => els.map((e) => e.dataset.build));
@@ -1440,6 +1440,8 @@ async function signOut(page) {
           if (w <= 390) ok(`layout: touch targets ≥24px, ${tag}`, r.tiny === 0, `${r.tiny} small targets`);
           if (w === 768 || (w === 390 && theme === 'dark')) await p.screenshot({ path: `${SHOTS}${name}-${w}-${theme}.png` });
           if ((w === 1440 || w === 390) && (IS_CHROMIUM || theme === 'light')) {
+            // The landing page builds itself: check it once no block is mid-animation (text fading in has, briefly, low contrast).
+            await p.waitForFunction(() => !document.querySelector('.bld[data-build="drawing"], .bld[data-build="filling"]'), null, { timeout: 15000 }).catch(() => {});
             await p.addScriptTag({ content: AXE });
             const res = await p.evaluate(async () => {
               const r = await window.axe.run(document, { runOnly: ['wcag2a', 'wcag2aa'] });
