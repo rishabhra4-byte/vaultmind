@@ -152,6 +152,52 @@ async function signOut(page) {
       return top < 200 || `section top at ${top}`;
     });
     await check('landing: nav gets background after scroll', async () => (await p.$('.site-nav.scrolled')) !== null);
+    await check('landing: the page builds itself, agents and all, without moving anything', async () => {
+      const q = await newPage(browser, 'build');
+      await q.addInitScript(() => {
+        window.__cls = 0;
+        new PerformanceObserver((l) => l.getEntries().forEach((e) => !e.hadRecentInput && (window.__cls += e.value))).observe({ type: 'layout-shift', buffered: true });
+      });
+      await q.goto(BASE + '/');
+      await q.waitForSelector('.ab-agent');
+      await q.waitForSelector('.bld[data-build="drawing"] .bld-tag');
+      const tag = await q.textContent('.bld[data-build="drawing"] .bld-tag');
+      await q.waitForSelector('.ab-bar:has-text("Built")', { timeout: 15000 });
+      const hero = await q.$$eval('.hero .bld', (els) => els.map((e) => e.dataset.build));
+      const below = await q.$$eval('.feature-grid .bld', (els) => els.map((e) => e.dataset.build));
+      await q.mouse.wheel(0, 2600);
+      await q.waitForFunction(() => [...document.querySelectorAll('.feature-grid .bld')].some((e) => e.dataset.build !== 'waiting'), null, { timeout: 8000 });
+      const cls = await q.evaluate(() => window.__cls);
+      await q.context().close();
+      return (/\d+×\d+/.test(tag) && hero.every((b) => b === 'built') && below.every((b) => b === 'waiting') && cls < 0.01) || JSON.stringify({ tag, hero, below, cls });
+    });
+    await check('landing: Skip finishes the page at once', async () => {
+      const q = await newPage(browser, 'build-skip');
+      await q.goto(BASE + '/');
+      await q.click('.ab-bar button:has-text("Skip")');
+      const states = await q.$$eval('.bld', (els) => els.map((e) => e.dataset.build));
+      const agents = await q.$$('.ab-agent');
+      await q.context().close();
+      return (states.every((b) => b === 'built') && agents.length === 0) || states.join(',');
+    });
+    await check('landing: with reduced motion the page is simply there', async () => {
+      const ctx = await browser.newContext({ reducedMotion: 'reduce' });
+      const q = await ctx.newPage();
+      await q.goto(BASE + '/');
+      await q.waitForSelector('.hero h1');
+      const states = await q.$$eval('.bld', (els) => els.map((e) => e.dataset.build));
+      const extras = (await q.$$('.ab-agent, .ab-bar')).length;
+      await ctx.close();
+      return (states.length > 10 && states.every((b) => b === 'built') && extras === 0) || `${states.join(',')} ${extras}`;
+    });
+    await check('landing: tabbing to a block that isn\'t built yet builds it', async () => {
+      const q = await newPage(browser, 'build-focus');
+      await q.goto(BASE + '/');
+      await q.focus('.security-copy a.btn');
+      const state = await q.$eval('.security-copy a.btn', (a) => a.closest('.bld').dataset.build);
+      await q.context().close();
+      return state === 'built' || state;
+    });
     await check('map: a route lights up its path, and the panel explains each step', async () => {
       await p.waitForSelector('.system-map .sm-node');
       await p.click('.sm-route:has-text("Can\'t open it")');
