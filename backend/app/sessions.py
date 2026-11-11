@@ -152,7 +152,14 @@ def open_sessions(db: Session, user_id: int) -> list[UserSession]:
     return out
 
 
-_BROWSERS = [("Edg/", "Edge"), ("OPR/", "Opera"), ("Firefox/", "Firefox"), ("Chrome/", "Chrome"), ("Safari/", "Safari")]
+_BROWSERS = [
+    ("VaultMind-VSCode/", "VS Code extension"),
+    ("Edg/", "Edge"),
+    ("OPR/", "Opera"),
+    ("Firefox/", "Firefox"),
+    ("Chrome/", "Chrome"),
+    ("Safari/", "Safari"),
+]
 _SYSTEMS = [
     ("iPhone", "iPhone"),
     ("iPad", "iPad"),

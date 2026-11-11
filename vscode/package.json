@@ -1,0 +1,83 @@
+{
+  "name": "vaultmind-vscode",
+  "displayName": "VaultMind",
+  "description": "Ask your company's documents from VS Code: chat with citations, ask about a selection, documents for this project, and research quests that write a cited report. Permission-aware, like the VaultMind website.",
+  "version": "0.1.0",
+  "publisher": "vaultmind",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/rishabhra4-byte/vaultmind" },
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["AI", "Chat", "Other"],
+  "icon": "media/icon.png",
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/src/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [{ "id": "vaultmind", "title": "VaultMind", "icon": "media/vaultmind.svg" }]
+    },
+    "views": {
+      "vaultmind": [
+        { "type": "webview", "id": "vaultmind.chat", "name": "Ask" },
+        { "id": "vaultmind.projectDocs", "name": "Documents for this project" }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "vaultmind.projectDocs",
+        "contents": "Sign in to see the company documents that matter for this project.\n[Sign in to VaultMind](command:vaultmind.signIn)",
+        "when": "!vaultmind.signedIn"
+      }
+    ],
+    "commands": [
+      { "command": "vaultmind.signIn", "title": "Sign in", "category": "VaultMind", "icon": "$(sign-in)" },
+      { "command": "vaultmind.signOut", "title": "Sign out", "category": "VaultMind" },
+      { "command": "vaultmind.newChat", "title": "New chat", "category": "VaultMind", "icon": "$(add)" },
+      { "command": "vaultmind.askAboutSelection", "title": "Ask VaultMind about this", "category": "VaultMind" },
+      { "command": "vaultmind.searchDocs", "title": "Search company documents", "category": "VaultMind", "icon": "$(search)" },
+      { "command": "vaultmind.refreshProjectDocs", "title": "Refresh", "category": "VaultMind", "icon": "$(refresh)" },
+      { "command": "vaultmind.newQuest", "title": "New research quest", "category": "VaultMind" },
+      { "command": "vaultmind.runQuest", "title": "Run this research quest", "category": "VaultMind", "icon": "$(play)" },
+      { "command": "vaultmind.openWebsite", "title": "Open VaultMind in the browser", "category": "VaultMind", "icon": "$(link-external)" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "vaultmind.newChat", "when": "view == vaultmind.chat", "group": "navigation" },
+        { "command": "vaultmind.openWebsite", "when": "view == vaultmind.chat", "group": "navigation" },
+        { "command": "vaultmind.searchDocs", "when": "view == vaultmind.projectDocs", "group": "navigation" },
+        { "command": "vaultmind.refreshProjectDocs", "when": "view == vaultmind.projectDocs", "group": "navigation" }
+      ],
+      "editor/context": [
+        { "command": "vaultmind.askAboutSelection", "when": "editorHasSelection", "group": "navigation@90" }
+      ],
+      "editor/title": [
+        { "command": "vaultmind.runQuest", "when": "resourceFilename =~ /\\.quest\\.md$/", "group": "navigation" }
+      ],
+      "commandPalette": [
+        { "command": "vaultmind.runQuest", "when": "resourceFilename =~ /\\.quest\\.md$/" },
+        { "command": "vaultmind.refreshProjectDocs", "when": "false" }
+      ]
+    },
+    "configuration": {
+      "title": "VaultMind",
+      "properties": {
+        "vaultmind.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:5173",
+          "markdownDescription": "Your company's VaultMind address, e.g. `https://vaultmind.example.com`. For the project run from VS Code, `http://localhost:5173`; for the public demo, `https://vaultmind-demo.onrender.com`."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -w -p .",
+    "test": "tsc -p . && node --test \"out/test/**/*.test.js\"",
+    "package": "tsc -p . && vsce package --no-dependencies --allow-missing-repository -o vaultmind-vscode.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "20.17.6",
+    "@types/vscode": "1.90.0",
+    "@vscode/vsce": "3.2.1",
+    "typescript": "5.6.3"
+  }
+}

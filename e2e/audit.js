@@ -1284,6 +1284,43 @@ async function signOut(page) {
     await p.context().close();
   });
 
+  // ---------------------------------------------------------------- signing in the VS Code extension
+  await block('editor sign-in', async () => {
+    const editor = { 'Content-Type': 'application/json', 'User-Agent': 'VaultMind-VSCode/0.1.0 (Linux)' };
+    const start = await (await fetch(`${BASE}/api/auth/device`, { method: 'POST', headers: editor, body: JSON.stringify({ client: 'VS Code' }) })).json();
+    const poll = () => fetch(`${BASE}/api/auth/device/token`, { method: 'POST', headers: editor, body: JSON.stringify({ device_code: start.device_code }) });
+    const p = await newPage(browser, 'priya-connect');
+    await signIn(p, 'Priya Sharma');
+    await check('editor sign-in: the approval page shows the code, what asked, and from where', async () => {
+      await p.goto(`${BASE}/connect?code=${start.user_code}`);
+      await p.waitForSelector('.connect-code');
+      const t = await p.textContent('.connect-card');
+      return (t.includes(start.user_code) && t.includes('VS Code') && t.includes('Priya Sharma') && /Requested at/.test(t) && (await poll()).status === 202) || t;
+    });
+    await check('editor sign-in: approving signs the editor in, once', async () => {
+      await p.click('button:has-text("Sign VS Code in")');
+      await p.waitForSelector('h1:has-text("VS Code is signed in")');
+      const r = await poll();
+      const body = await r.json();
+      const again = await poll();
+      return (r.status === 200 && body.user.full_name === 'Priya Sharma' && again.status === 410) || `${r.status} ${again.status}`;
+    });
+    await check('editor sign-in: the session is listed as the VS Code extension', async () => {
+      await p.goto(BASE + '/');
+      await p.click('button[aria-label="Your account and sessions"]');
+      await p.waitForSelector('dialog[open]');
+      const t = await p.textContent('dialog[open]');
+      await p.keyboard.press('Escape');
+      return t.includes('VS Code extension') || t;
+    });
+    await check('editor sign-in: a made-up code is refused', async () => {
+      await p.goto(`${BASE}/connect?code=BCDF-GHJK`);
+      const t = await (await p.waitForSelector('.connect-card .error')).textContent();
+      return /isn't valid/.test(t) || t;
+    });
+    await p.context().close();
+  });
+
   // ---------------------------------------------------------------- responsive sweep + axe
   const widths = [320, 360, 390, 768, 1024, 1280, 1440, 1920];
   const pages = [
@@ -1297,6 +1334,7 @@ async function signOut(page) {
     ['admin-review', '/admin/review', 'Dev Patel'],
     ['admin-verified', '/admin/verified', 'Dev Patel'],
     ['admin-library', '/admin/library', 'Dev Patel'],
+    ['connect', '/connect', 'Rohan Iyer'],
     ['document-ask', '/library/6', 'Rohan Iyer', async (p) => {
       await p.click('button:has-text("Ask about this document")');
       await p.waitForSelector('.ask-drawer');
