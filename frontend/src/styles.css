@@ -5706,6 +5706,37 @@ kbd,
   }
 }
 
+/* ------------------------------------------------------------------ signing in an editor */
+.connect-page {
+  display: grid;
+  place-items: start center;
+}
+.connect-card {
+  max-width: 520px;
+  width: 100%;
+  margin-top: 24px;
+}
+.connect-card h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+.connect-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: var(--primary-text);
+  background: var(--primary-soft);
+}
+.connect-code {
+  margin: 4px 0;
+  font-family: "JetBrains Mono Variable", ui-monospace, monospace;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
 /* ------------------------------------------------------------------ the landing page builds itself */
 /* A block waits invisible (its space kept), gets a wireframe drawn around it with a label and
    size, then its content wipes in. Only opacity, clip-path and transforms change. */

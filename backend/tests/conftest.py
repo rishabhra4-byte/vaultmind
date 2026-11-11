@@ -19,6 +19,7 @@ from app import llm  # noqa: E402
 from app.database import Base, SessionLocal, engine  # noqa: E402
 from app.deps import chat_limiter, login_limiter_account, login_limiter_ip  # noqa: E402
 from app.main import app  # noqa: E402
+from app.routers.device import start_limiter as device_start_limiter  # noqa: E402
 from app.seed import DEMO_PASSWORD, seed  # noqa: E402
 from app.services import rebuild_index  # noqa: E402
 
@@ -70,6 +71,7 @@ def fresh_db():
         seed(db)
         rebuild_index(db)
     chat_limiter.reset()
+    device_start_limiter.reset()
     login_limiter_account.reset()
     login_limiter_ip.reset()
     llm.set_llm(None)  # offline by default; tests opt in to the fake

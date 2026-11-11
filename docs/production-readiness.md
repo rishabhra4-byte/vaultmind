@@ -648,3 +648,44 @@ showed `&amp;` for "&".
   text when it's indexed (measured on the demo corpus repeated 20 times).
 - The near-duplicate threshold on real company files (old and new policy versions, PDF and
   Word exports of the same document).
+
+## L. VaultMind in VS Code (5 November 2026)
+
+### L1. What was added
+
+- **A VS Code extension** (`vscode/`): an **Ask** chat panel (streamed, cited answers, the answer's
+  kind and source list), **Ask VaultMind about this** on a selection, **Documents for this project**
+  (from the README, `package.json` and folders, or `.vaultmind.json` topics) and document search,
+  **research quests** (`*.quest.md` questions answered into a cited `*.report.md`), and project
+  rules (`.vaultmind.json` filters).
+- **Editor sign-in** (`/api/auth/device`, the `/connect` page): the editor shows a code, the person
+  approves it in the browser, the editor gets an ordinary session.
+
+### L2. Risks, and how they're handled
+
+| # | Risk | How it's handled | Proven by |
+|---|---|---|---|
+| L-S1 | The editor holds a password | It never sees one: sign-in is approved in the browser (password or company sign-in), and the editor keeps only its session token, in VS Code's secret storage | Design; `test_approving_the_code_in_the_browser_signs_the_editor_in` |
+| L-S2 | Someone tricks a person into approving a code they started ("device-code phishing") | The page names what asked, from which address and when, and says never to approve a code someone sent; codes expire in 10 minutes and work once; approvals and refusals are logged; the session is listed and can be ended | `test_approving_…`, `test_denying_or_letting_it_expire_never_signs_in`, browser audit |
+| L-S3 | A stolen database lets someone collect a session | Only the SHA-256 of the editor's secret is stored | `test_the_secret_is_stored_only_as_a_hash` |
+| L-S4 | Guessing codes, or flooding requests | Codes are 8 letters (20^8) and only readable by someone signed in; starting is rate-limited per address | `test_only_someone_signed_in_…`, `test_starting_is_rate_limited` |
+| L-S5 | The editor answers from documents the person can't open | It uses the same API as the website, so the same permission checks; project rules only narrow | `vscode/test/live.test.ts` (Salary Bands never offered to Priya) |
+| L-S6 | Document text injected into the editor's chat panel | The panel's content security policy allows only its own script; answers are escaped before any markup is added; names are set as text | `vscode/test/format.test.ts`; panel script checked in a browser with an `<img onerror>` payload |
+
+### L3. Tests run and their results (5 November)
+
+| What | Result |
+|---|---|
+| Backend tests, SQLite | **310 passed**, 5 skipped (6 new in `test_device_signin.py`) |
+| Backend tests, PostgreSQL 16 | **310 passed**, 5 skipped |
+| Extension unit tests (`npm test` in `vscode/`) | **9 passed** |
+| Extension client against a running server (`VAULTMIND_URL=… npm test`) | **15 passed**: sign in by code, ask with citations, project documents without locked ones, a quest report, sign out |
+| Browser audit (Chromium, local) | **620 of 620**, 0 console or network problems; new: the approval page, approving signs the editor in once, the session listed as the extension, a made-up code refused, and `/connect` in the axe and overflow sweep |
+| Accessibility review | 26 of 26 |
+
+### L4. Still unverified
+
+- The extension inside VS Code itself: its panel, tree, commands and menus were not run in VS Code
+  here (VS Code's download is blocked in this environment). Its logic is tested on its own and
+  against a server; the panel script was checked in a browser.
+- The Windows build of the extension on a real PC, until it's installed there.

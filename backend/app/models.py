@@ -151,6 +151,24 @@ class UserSession(Base):
     end_reason: Mapped[str] = mapped_column(String(40), default="")
 
 
+class DeviceSignIn(Base):
+    """An editor (the VS Code extension) asking to sign in: it shows a short code, the person
+    approves that code in their browser, and the editor collects a session. Only the SHA-256 of
+    the editor's secret device code is stored."""
+
+    __tablename__ = "device_sign_ins"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # sha256 of the device code
+    user_code: Mapped[str] = mapped_column(String(9), unique=True, index=True)  # e.g. "KQXW-MRTD"
+    client: Mapped[str] = mapped_column(String(60), default="VS Code")
+    ip: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(12), default="pending")  # pending | approved | denied | used
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class UserIdentity(Base):
     """The person's id at an outside service, e.g. a Microsoft object id or a Slack user id."""
 

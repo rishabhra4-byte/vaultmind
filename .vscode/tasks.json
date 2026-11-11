@@ -8,7 +8,7 @@
       "type": "shell",
       "command": "python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt && cd ../frontend && npm ci",
       "windows": {
-        "command": "python -m venv .venv; .venv\\Scripts\\pip install -r requirements-dev.txt; cd ..\\frontend; npm ci"
+        "command": "python -m venv .venv; .venv\\Scripts\\pip install -r requirements-dev.txt; cd ..\\frontend; npm.cmd ci"
       },
       "options": { "cwd": "${workspaceFolder}/backend" },
       "problemMatcher": []
@@ -22,18 +22,19 @@
       "isBackground": true,
       "problemMatcher": {
         "pattern": { "regexp": "^ERROR:\\s+(.*)$", "message": 1 },
-        "background": { "activesBegin": "Will watch for changes", "activesEnd": "Application startup complete" }
+        "background": { "beginsPattern": "Will watch for changes", "endsPattern": "Application startup complete" }
       }
     },
     {
       "label": "Web app (:5173)",
       "type": "shell",
       "command": "npm run dev",
+      "windows": { "command": "npm.cmd run dev" },
       "options": { "cwd": "${workspaceFolder}/frontend" },
       "isBackground": true,
       "problemMatcher": {
         "pattern": { "regexp": "^\\s*error\\s+(.*)$", "message": 1 },
-        "background": { "activesBegin": "VITE", "activesEnd": "Local:" }
+        "background": { "beginsPattern": "VITE", "endsPattern": "Local:" }
       }
     },
     {
@@ -65,6 +66,7 @@
       "label": "Type-check the web app",
       "type": "shell",
       "command": "npx tsc -b",
+      "windows": { "command": "npx.cmd tsc -b" },
       "options": { "cwd": "${workspaceFolder}/frontend" },
       "group": "test",
       "problemMatcher": "$tsc"
