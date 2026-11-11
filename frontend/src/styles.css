@@ -5736,3 +5736,285 @@ kbd,
   font-weight: 700;
   letter-spacing: 0.12em;
 }
+
+/* ------------------------------------------------------------------ the landing page builds itself */
+/* A block waits invisible (its space kept), gets a wireframe drawn around it with a label and
+   size, then its content wipes in. Only opacity, clip-path and transforms change. */
+.bld {
+  position: relative;
+}
+.bld[data-build="waiting"] > :not(.bld-frame),
+.bld[data-build="drawing"] > :not(.bld-frame) {
+  opacity: 0;
+}
+.bld[data-build="filling"] > :not(.bld-frame) {
+  animation: bld-wipe 0.52s cubic-bezier(0.3, 0.7, 0.2, 1) both;
+}
+@keyframes bld-wipe {
+  from {
+    opacity: 0.2;
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+.bld-frame {
+  position: absolute;
+  inset: -6px;
+  pointer-events: none;
+  border: 1px solid #38bdf8;
+  border-radius: 6px;
+  background: color-mix(in srgb, #38bdf8 7%, transparent);
+  opacity: 0;
+  visibility: hidden;
+}
+.bld[data-build="drawing"] > .bld-frame,
+.bld[data-build="filling"] > .bld-frame {
+  visibility: visible;
+}
+.bld[data-build="drawing"] > .bld-frame {
+  animation: bld-draw 0.42s cubic-bezier(0.3, 0.7, 0.2, 1) both;
+}
+.bld[data-build="filling"] > .bld-frame {
+  animation: bld-fade 0.52s ease both;
+}
+@keyframes bld-draw {
+  from {
+    opacity: 1;
+    clip-path: inset(0 100% 100% 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes bld-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.bld-tag {
+  position: absolute;
+  left: -1px;
+  top: -20px;
+  padding: 1px 6px;
+  border-radius: 4px 4px 4px 0;
+  background: #38bdf8;
+  color: #04121c;
+  font: 600 10.5px/16px var(--mono);
+  white-space: nowrap;
+}
+.bld-tag::after {
+  content: attr(data-tag);
+}
+.bld-frame .h {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  background: var(--bg);
+  border: 1px solid #38bdf8;
+}
+.bld-frame .tl {
+  left: -4px;
+  top: -4px;
+}
+.bld-frame .tr {
+  right: -4px;
+  top: -4px;
+}
+.bld-frame .bl {
+  left: -4px;
+  bottom: -4px;
+}
+.bld-frame .br {
+  right: -4px;
+  bottom: -4px;
+}
+.ab-agents {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+  overflow: hidden;
+}
+.ab-agent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  transition: transform 0.38s cubic-bezier(0.45, 0, 0.2, 1);
+  will-change: transform;
+}
+.ab-agent svg {
+  fill: var(--ag);
+  stroke: #000;
+  stroke-width: 0.8;
+  filter: drop-shadow(0 0 6px var(--ag));
+}
+.ab-agent span {
+  margin-top: 12px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--ag);
+  color: #06100a;
+  font: 600 11px/17px var(--sans);
+  white-space: nowrap;
+}
+.ab-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  z-index: 61;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 32px);
+  padding: 7px 8px 7px 14px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-lift);
+  backdrop-filter: blur(10px);
+  font-size: 0.82rem;
+  animation: ab-in 0.3s ease both;
+}
+@keyframes ab-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+.ab-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--primary);
+}
+.ab-dot.busy {
+  animation: ab-pulse 1s ease-in-out infinite;
+}
+@keyframes ab-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+.ab-doing {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+}
+.ab-muted {
+  color: var(--ink-3);
+}
+.ab-count {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.ab-bar button {
+  flex: none;
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ab-bar button:hover {
+  border-color: var(--primary);
+}
+
+/* The hero, after the portfolio in the reel: a giant outlined word behind a greeting. */
+.hero-word {
+  grid-column: 1 / -1;
+  margin: 0 0 -0.32em;
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: min(14.6vw, 11.4rem);
+  line-height: 0.9;
+  letter-spacing: -0.04em;
+  color: transparent;
+  -webkit-text-stroke: 2px color-mix(in srgb, var(--primary) 75%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 16%, transparent), transparent 85%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  user-select: none;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.hero-hello {
+  margin: 18px 0 0;
+  font-family: var(--mono);
+  color: var(--ink-2);
+  font-size: 1.05rem;
+}
+.hero-name {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 12px 4px;
+  background: var(--primary);
+  color: #04130b;
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 1.6em;
+  letter-spacing: -0.02em;
+  transform: rotate(-1.5deg);
+}
+.hero-hello + h1 {
+  margin-top: 14px;
+}
+.hero-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+  margin: 26px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.hero-facts div {
+  display: grid;
+}
+.hero-facts dt {
+  font-family: var(--mono);
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: var(--primary-text);
+}
+.hero-facts dd {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 0.82rem;
+}
+.feature-grid > .bld {
+  display: grid;
+}
+@media (max-width: 900px) {
+  .hero-word {
+    margin-bottom: -0.2em;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bld > :not(.bld-frame) {
+    opacity: 1 !important;
+    animation: none !important;
+  }
+  .bld-frame,
+  .ab-agents {
+    display: none;
+  }
+}

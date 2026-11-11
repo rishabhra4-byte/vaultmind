@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
+import { Build, BuildProvider } from "../components/AgenticBuild";
 import { Avatar, ClassTag, teamColor, usePageTitle } from "../components/bits";
 import {
   IconActivity,
@@ -69,191 +70,237 @@ export default function Landing() {
   }, []);
 
   return (
-    <div className="landing">
-      <header className={`site-nav ${scrolled ? "scrolled" : ""}`}>
-        <div className="site-nav-inner">
-          <Link to="/" className="brand" aria-label="VaultMind home">
+    <BuildProvider>
+      <div className="landing">
+        <header className={`site-nav ${scrolled ? "scrolled" : ""}`}>
+          <div className="site-nav-inner">
+            <Link to="/" className="brand" aria-label="VaultMind home">
+              <span className="brand-mark">
+                <IconSparkle />
+              </span>
+              VaultMind
+            </Link>
+            <nav aria-label="Sections" className="site-links">
+              <a href="#how">How it works</a>
+              <a href="#features">Features</a>
+              <a href="#security">Security</a>
+            </nav>
+            <div className="row">
+              <ThemeToggle className="on-light" />
+              <Link to="/signin" className="btn ghost nav-signin">
+                Sign in
+              </Link>
+              <Link to="/signin" className="btn primary">
+                Try the demo
+              </Link>
+            </div>
+          </div>
+        </header>
+
+        <main>
+          <section className="hero">
+            <p className="hero-word" aria-hidden>
+              VAULTMIND
+            </p>
+            <div className="hero-copy">
+              <Build eager label="pill.eyebrow" agent={1}>
+                <span className="eyebrow-pill">
+                  <IconLock width={14} height={14} /> Permission-aware AI for company documents
+                </span>
+              </Build>
+              <Build eager label="h1.headline" agent={2}>
+                <p className="hero-hello">
+                  Hello, we're <span className="hero-name">VaultMind.</span>
+                </p>
+                <h1>The document assistant that knows who's asking.</h1>
+              </Build>
+              <Build eager label="p.lede" agent={2}>
+                <p className="hero-lede">
+                  VaultMind answers questions from your company's files, but only from the files each person is cleared to read.
+                  An intern and a director can ask the same question and get different, correct answers.
+                </p>
+              </Build>
+              <Build eager label="nav.actions" agent={0}>
+                <div className="hero-ctas">
+                  <Link to="/signin" className="btn primary lg">
+                    Try the live demo <IconArrowRight />
+                  </Link>
+                  <a href="#how" className="btn lg">
+                    See how it works
+                  </a>
+                </div>
+                <p className="hero-note muted small">No sign-up. Pick one of nine people at a demo company and start asking.</p>
+              </Build>
+              <Build eager label="dl.facts" agent={3}>
+                <dl className="hero-facts">
+                  <div>
+                    <dt>4</dt>
+                    <dd>classification levels</dd>
+                  </div>
+                  <div>
+                    <dt>6</dt>
+                    <dd>positions, one rule set</dd>
+                  </div>
+                  <div>
+                    <dt>9</dt>
+                    <dd>people in the demo</dd>
+                  </div>
+                </dl>
+              </Build>
+            </div>
+
+            <div
+              className="hero-visual"
+              role="img"
+              aria-label="Example: an intern and a manager ask for the SDE-2 salary band. The intern sees that Salary Bands 2026 exists but needs Manager level, with a button to request access. The manager gets the answer, 22 to 34 lakh rupees a year, with the document cited."
+            >
+              <Build eager label="card.intern" agent={1}>
+                <div className="compare-card">
+                  <div className="compare-head">
+                    <Avatar name="Aarav Mehta" team="Engineering" size={30} />
+                    <span>
+                      <strong>Aarav</strong> <span className="muted small">Intern, Engineering</span>
+                    </span>
+                  </div>
+                  <div className="msg-user mini">What's the SDE-2 salary band?</div>
+                  <div className="sealed class-edge-confidential mini">
+                    <div className="sealed-main">
+                      <span className="doc-icon">
+                        <IconLock />
+                      </span>
+                      <div>
+                        <div className="sealed-title">
+                          Salary Bands 2026 <ClassTag value="confidential" />
+                        </div>
+                        <div className="sealed-reason">Needs Manager level or above.</div>
+                      </div>
+                    </div>
+                    <span className="btn small primary" aria-hidden>
+                      Request access
+                    </span>
+                  </div>
+                </div>
+              </Build>
+              <Build eager label="card.manager" agent={3}>
+                <div className="compare-card offset">
+                  <div className="compare-head">
+                    <Avatar name="Rohan Iyer" team="Engineering" size={30} />
+                    <span>
+                      <strong>Rohan</strong> <span className="muted small">Manager, Engineering</span>
+                    </span>
+                  </div>
+                  <div className="msg-user mini">What's the SDE-2 salary band?</div>
+                  <div className="answer mini">
+                    <span className="bot-avatar sm">
+                      <IconSparkle width={14} height={14} />
+                    </span>
+                    <p>
+                      SDE-2 is <strong>₹22–34 lakh</strong> per year. Offers above the midpoint need Director approval.
+                      <span className="cite">1</span>
+                    </p>
+                  </div>
+                  <span className="source class-edge-confidential mini-source">
+                    <span className="source-n">1</span> Salary Bands 2026
+                  </span>
+                </div>
+              </Build>
+            </div>
+          </section>
+
+          <section className="section" id="how">
+            <Build label="section.how" agent={0}>
+              <div className="section-head">
+                <span className="section-kicker">how it works</span>
+                <h2>Permissions are checked before the AI reads anything</h2>
+                <p className="muted">
+                  Most document chatbots put everything in the prompt and ask the model to keep secrets. VaultMind never gives the
+                  model a page the person can't open, so there's nothing to leak. Follow a question, a locked document or an
+                  upload through the system below.
+                </p>
+              </div>
+            </Build>
+            <Suspense fallback={<div className="system-map sm-placeholder" aria-busy="true" />}>
+              <SystemMap headingLevel={3} />
+            </Suspense>
+          </section>
+
+          <section className="section" id="features">
+            <Build label="section.features" agent={2}>
+              <div className="section-head">
+                <span className="section-kicker">features</span>
+                <h2>Everything a team needs to share knowledge safely</h2>
+              </div>
+            </Build>
+            <div className="feature-grid">
+              {FEATURES.map((f, i) => (
+                <Build key={f.title} label={`card.feature-${i + 1}`} agent={i}>
+                  <article className="feature" style={{ "--sc": f.color } as CSSProperties}>
+                    <span className="feature-icon">{f.icon}</span>
+                    <h3>{f.title}</h3>
+                    <p>{f.body}</p>
+                  </article>
+                </Build>
+              ))}
+            </div>
+          </section>
+
+          <section className="section security-band" id="security">
+            <Build label="section.security" agent={1} className="security-copy-wrap">
+              <div className="security-copy">
+                <span className="section-kicker">security</span>
+                <h2>Four levels, six positions, one set of rules</h2>
+                <p>
+                  Every document has a classification and an owning team. Every person has a team and a position. The rules live
+                  in one small, tested module, and every decision comes with a reason people can read.
+                </p>
+                <Link to="/signin" className="btn primary">
+                  Try it as different people <IconArrowRight />
+                </Link>
+              </div>
+            </Build>
+            <Build label="ul.levels" agent={3}>
+              <ul className="level-list">
+                {(meta?.classifications ?? []).map((c) => (
+                  <li key={c.value}>
+                    <ClassTag value={c.value} />
+                    <span>{c.help}</span>
+                  </li>
+                ))}
+              </ul>
+            </Build>
+          </section>
+
+          <section className="section cta-final">
+            <h2>See it from nine points of view</h2>
+            <p className="muted">From the intern to the CEO. Same question, different answers, all correct.</p>
+            <div className="avatar-row" aria-hidden>
+              {(meta?.demo_users ?? []).map((u) => (
+                <span key={u.email} style={{ "--av": teamColor(u.team) } as CSSProperties} title={u.full_name}>
+                  <Avatar name={u.full_name} team={u.team} size={44} />
+                </span>
+              ))}
+            </div>
+            <Link to="/signin" className="btn primary lg">
+              Open the demo <IconArrowRight />
+            </Link>
+          </section>
+        </main>
+
+        <footer className="site-foot">
+          <span className="brand">
             <span className="brand-mark">
               <IconSparkle />
             </span>
             VaultMind
-          </Link>
-          <nav aria-label="Sections" className="site-links">
-            <a href="#how">How it works</a>
-            <a href="#features">Features</a>
-            <a href="#security">Security</a>
-          </nav>
-          <div className="row">
-            <ThemeToggle className="on-light" />
-            <Link to="/signin" className="btn ghost nav-signin">
-              Sign in
-            </Link>
-            <Link to="/signin" className="btn primary">
-              Try the demo
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <main>
-        <section className="hero">
-          <div className="hero-copy">
-            <span className="eyebrow-pill">
-              <IconLock width={14} height={14} /> Permission-aware AI for company documents
-            </span>
-            <h1>The document assistant that knows who's asking.</h1>
-            <p className="hero-lede">
-              VaultMind answers questions from your company's files, but only from the files each person is cleared to read.
-              An intern and a director can ask the same question and get different, correct answers.
-            </p>
-            <div className="hero-ctas">
-              <Link to="/signin" className="btn primary lg">
-                Try the live demo <IconArrowRight />
-              </Link>
-              <a href="#how" className="btn lg">
-                See how it works
-              </a>
-            </div>
-            <p className="hero-note muted small">No sign-up. Pick one of nine people at a demo company and start asking.</p>
-          </div>
-
-          <div
-            className="hero-visual"
-            role="img"
-            aria-label="Example: an intern and a manager ask for the SDE-2 salary band. The intern sees that Salary Bands 2026 exists but needs Manager level, with a button to request access. The manager gets the answer, 22 to 34 lakh rupees a year, with the document cited."
-          >
-            <div className="compare-card">
-              <div className="compare-head">
-                <Avatar name="Aarav Mehta" team="Engineering" size={30} />
-                <span>
-                  <strong>Aarav</strong> <span className="muted small">Intern, Engineering</span>
-                </span>
-              </div>
-              <div className="msg-user mini">What's the SDE-2 salary band?</div>
-              <div className="sealed class-edge-confidential mini">
-                <div className="sealed-main">
-                  <span className="doc-icon">
-                    <IconLock />
-                  </span>
-                  <div>
-                    <div className="sealed-title">
-                      Salary Bands 2026 <ClassTag value="confidential" />
-                    </div>
-                    <div className="sealed-reason">Needs Manager level or above.</div>
-                  </div>
-                </div>
-                <span className="btn small primary" aria-hidden>
-                  Request access
-                </span>
-              </div>
-            </div>
-            <div className="compare-card offset">
-              <div className="compare-head">
-                <Avatar name="Rohan Iyer" team="Engineering" size={30} />
-                <span>
-                  <strong>Rohan</strong> <span className="muted small">Manager, Engineering</span>
-                </span>
-              </div>
-              <div className="msg-user mini">What's the SDE-2 salary band?</div>
-              <div className="answer mini">
-                <span className="bot-avatar sm">
-                  <IconSparkle width={14} height={14} />
-                </span>
-                <p>
-                  SDE-2 is <strong>₹22–34 lakh</strong> per year. Offers above the midpoint need Director approval.
-                  <span className="cite">1</span>
-                </p>
-              </div>
-              <span className="source class-edge-confidential mini-source">
-                <span className="source-n">1</span> Salary Bands 2026
-              </span>
-            </div>
-          </div>
-        </section>
-
-        <section className="section" id="how">
-          <div className="section-head">
-            <span className="section-kicker">how it works</span>
-            <h2>Permissions are checked before the AI reads anything</h2>
-            <p className="muted">
-              Most document chatbots put everything in the prompt and ask the model to keep secrets. VaultMind never gives the
-              model a page the person can't open, so there's nothing to leak. Follow a question, a locked document or an upload
-              through the system below.
-            </p>
-          </div>
-          <Suspense fallback={<div className="system-map sm-placeholder" aria-busy="true" />}>
-            <SystemMap headingLevel={3} />
-          </Suspense>
-        </section>
-
-        <section className="section" id="features">
-          <div className="section-head">
-            <span className="section-kicker">features</span>
-            <h2>Everything a team needs to share knowledge safely</h2>
-          </div>
-          <div className="feature-grid">
-            {FEATURES.map((f) => (
-              <article key={f.title} className="feature" style={{ "--sc": f.color } as CSSProperties}>
-                <span className="feature-icon">{f.icon}</span>
-                <h3>{f.title}</h3>
-                <p>{f.body}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="section security-band" id="security">
-          <div className="security-copy">
-            <span className="section-kicker">security</span>
-            <h2>Four levels, six positions, one set of rules</h2>
-            <p>
-              Every document has a classification and an owning team. Every person has a team and a position. The rules live in
-              one small, tested module, and every decision comes with a reason people can read.
-            </p>
-            <Link to="/signin" className="btn primary">
-              Try it as different people <IconArrowRight />
-            </Link>
-          </div>
-          <ul className="level-list">
-            {(meta?.classifications ?? []).map((c) => (
-              <li key={c.value}>
-                <ClassTag value={c.value} />
-                <span>{c.help}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="section cta-final">
-          <h2>See it from nine points of view</h2>
-          <p className="muted">From the intern to the CEO. Same question, different answers, all correct.</p>
-          <div className="avatar-row" aria-hidden>
-            {(meta?.demo_users ?? []).map((u) => (
-              <span key={u.email} style={{ "--av": teamColor(u.team) } as CSSProperties} title={u.full_name}>
-                <Avatar name={u.full_name} team={u.team} size={44} />
-              </span>
-            ))}
-          </div>
-          <Link to="/signin" className="btn primary lg">
-            Open the demo <IconArrowRight />
-          </Link>
-        </section>
-      </main>
-
-      <footer className="site-foot">
-        <span className="brand">
-          <span className="brand-mark">
-            <IconSparkle />
           </span>
-          VaultMind
-        </span>
-        <span className="muted small">
-          Built by Rishabh Rakshit. Open source under the MIT license.{" "}
-          <a href="https://github.com/rishabhra4-byte/vaultmind" target="_blank" rel="noreferrer">
-            View the code on GitHub
-          </a>
-        </span>
-      </footer>
-    </div>
+          <span className="muted small">
+            Built by Rishabh Rakshit. Open source under the MIT license.{" "}
+            <a href="https://github.com/rishabhra4-byte/vaultmind" target="_blank" rel="noreferrer">
+              View the code on GitHub
+            </a>
+          </span>
+        </footer>
+      </div>
+    </BuildProvider>
   );
 }
