@@ -11,7 +11,8 @@ STOPWORDS = frozenset(
     own same she should so some such than that the their theirs them themselves then there these
     they this those through to too under until up very was we were what when where which while who
     whom why will with would you your yours yourself yourselves also may must per via within without
-    get got need needs want wants please tell show find give know us let any every
+    get got gets getting need needs needed want wants wanted please tell tells show shows find give gives giving
+    gave given know knows us let lets any every
     don doesn didn isn aren wasn weren won wouldn shouldn couldn hasn haven hadn ll ve re""".split()
 )
 
