@@ -83,6 +83,8 @@ class Settings(BaseSettings):
 
     # None = follow the environment: on in development, off in production.
     seed_demo_data: bool | None = None
+    # With demo data: also arrange the demo documents into library folders (once).
+    demo_folders: bool = True
 
     # The address people use to reach VaultMind, e.g. https://vaultmind.example.com. Used for
     # links in emails and Slack messages, and for the sign-in redirect with Google/Microsoft.

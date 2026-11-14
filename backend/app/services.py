@@ -315,13 +315,18 @@ def set_principals(doc: Document, principals: Iterable[tuple[str, str]]) -> bool
 
 
 def collect_blob(db: Session, storage_key: str) -> None:
-    """Delete a stored file after the commit, if no document uses it any more.
+    """Delete a stored file after the commit, if no document (or deleted document in the
+    recycle bin) uses it any more.
 
     Files are shared by identical documents, so this checks for other users first; and it
     waits for the commit, so a failed transaction never loses a file it still points to.
     """
+    from .models import DeletedDocument  # the recycle bin keeps a deleted document's file
+
     db.flush()
-    if db.scalar(select(Document.id).where(Document.storage_key == storage_key).limit(1)) is None:
+    in_use = db.scalar(select(Document.id).where(Document.storage_key == storage_key).limit(1)) is not None
+    in_bin = db.scalar(select(DeletedDocument.id).where(DeletedDocument.storage_key == storage_key).limit(1)) is not None
+    if not in_use and not in_bin:
         after_commit(db, lambda: storage.delete(storage_key))
 
 
