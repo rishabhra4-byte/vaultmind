@@ -25,6 +25,14 @@ def run_backup() -> None:
     run_scheduled()
 
 
+def empty_old_bin() -> int:
+    """Remove for good what has been in the recycle bin longer than it is kept."""
+    from . import explorer
+
+    with SessionLocal() as db:
+        return explorer.purge_expired(db)
+
+
 def remind_verified() -> int:
     """Tell owners when a verified answer is due for review or a source of it changed."""
     from . import verified
@@ -123,5 +131,6 @@ class Scheduler:
             job("expiry reminders", remind_expiring_grants)
             job("backup", run_backup)
             job("verified answer reviews", remind_verified)
+            job("recycle bin", empty_old_bin)
         job("deliveries", deliver_pending)
         job("search by meaning", embed_pending)

@@ -249,6 +249,9 @@ def test_deleting_the_last_copy_removes_the_stored_file(client, login):
         key = db.get(Document, doc_id).storage_key
     assert storage.get(key)
     assert client.delete(f"/api/documents/{doc_id}", headers=rohan).status_code == 204
+    assert storage.get(key)  # kept while the document waits in the recycle bin
+    item = client.get("/api/library/bin", headers=rohan).json()[0]
+    assert client.delete(f"/api/library/bin/{item['id']}", headers=rohan).status_code == 204
     with pytest.raises(FileNotFoundError):
         storage.get(key)
 
@@ -363,7 +366,7 @@ def test_databases_from_version_1_are_upgraded_in_place(empty_database, monkeypa
     monkeypatch.setattr(migrations, "engine", engine)
     migrations.upgrade_database()
     with engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0008"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0009"
         assert conn.execute(text("SELECT email FROM users")).scalar() == "a@x"
         row = conn.execute(text("SELECT version, text FROM document_versions WHERE document_id = 7")).one()
         assert row == (1, "First part.\n\nSecond part.")

@@ -75,6 +75,42 @@ export interface Doc {
   source: SourceRef | null;
   source_path: string;
   external_url: string | null;
+  /** The library folder it sits in; null at the top. A folder only arranges, it grants nothing. */
+  folder_id: number | null;
+  /** Pinned by the person signed in. */
+  pinned: boolean;
+}
+
+/** A library folder, as far as the person signed in may see it. */
+export interface Folder {
+  id: number;
+  name: string;
+  parent_id: number | null;
+  /** Documents directly inside that this person can see. */
+  documents: number;
+  can_edit: boolean;
+  pinned: boolean;
+}
+
+export interface LibraryHome {
+  pinned_documents: Doc[];
+  pinned_folders: Folder[];
+  recent: Doc[];
+}
+
+/** A deleted document waiting in the recycle bin. */
+export interface Deleted {
+  id: number;
+  original_id: number;
+  title: string;
+  filename: string;
+  size: number;
+  classification: Classification;
+  owner_team: string;
+  folder: string | null;
+  deleted_by: string | null;
+  deleted_at: string;
+  expires_at: string;
 }
 
 export interface SourceRef {

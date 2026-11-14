@@ -16,6 +16,9 @@ User ──< AssistantAction            things the assistant offered to do, done
 User ──< Notification               in-app notices, also sent by email or Slack when set up
 User ──< UserIdentity               the person's id at Google, Microsoft or Slack
 User ──< UserSession                signed-in browsers, which can be ended
+Folder ──< Folder, Document         how people arrange the library; a folder grants nothing
+User ──< Pin >── Document | Folder  what a person pinned to the top of their library
+DeletedDocument                     the recycle bin: a deleted document, kept so it can be restored
 GlossaryTerm                        company vocabulary used to widen searches
 AuditEvent                          append-only activity log
 """
@@ -256,6 +259,9 @@ class Document(Base):
     storage_key: Mapped[str] = mapped_column(String(255))
 
     owner_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), index=True)
+    # Where it sits in the library's folders (nowhere: the top). A folder only arranges
+    # documents; who may open one is decided by the document, never by its folder.
+    folder_id: Mapped[int | None] = mapped_column(ForeignKey("folders.id", ondelete="SET NULL"), index=True)
     classification: Mapped[str] = mapped_column(String(20), default=Classification.INTERNAL)
     min_position: Mapped[int] = mapped_column(Integer, default=Position.INTERN)
     # Discoverable documents may be *mentioned* (title only) to people who can't open them,
@@ -299,6 +305,61 @@ class Document(Base):
     @property
     def shared_group_ids(self) -> set[int]:
         return {s.group_id for s in self.group_shares}
+
+
+class Folder(Base):
+    """A folder in the library. It arranges documents and grants nothing: a person sees a
+    folder only if they made it or something inside it is theirs to see."""
+
+    __tablename__ = "folders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("folders.id", ondelete="CASCADE"), index=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Pin(Base):
+    """Something a person pinned to the top of their library: a document or a folder."""
+
+    __tablename__ = "pins"
+    __table_args__ = (
+        UniqueConstraint("user_id", "document_id", name="uq_pins_user_document"),
+        UniqueConstraint("user_id", "folder_id", name="uq_pins_user_folder"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    document_id: Mapped[int | None] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
+    folder_id: Mapped[int | None] = mapped_column(ForeignKey("folders.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DeletedDocument(Base):
+    """The recycle bin. Deleting a document removes it everywhere (search, the assistant,
+    sharing, requests) exactly as before; what is needed to bring it back is kept here until
+    `expires_at`. The stored file stays while a row here points at it."""
+
+    __tablename__ = "deleted_documents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    original_id: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(255))
+    filename: Mapped[str] = mapped_column(String(255))
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    storage_key: Mapped[str] = mapped_column(String(255), index=True)
+    owner_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), index=True)
+    classification: Mapped[str] = mapped_column(String(20))
+    folder_id: Mapped[int | None] = mapped_column(ForeignKey("folders.id", ondelete="SET NULL"))
+    uploaded_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    deleted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    # Everything else needed to restore it: settings, sharing, passages and earlier versions.
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    owner_team: Mapped[Team] = relationship()
 
 
 class DocumentShare(Base):

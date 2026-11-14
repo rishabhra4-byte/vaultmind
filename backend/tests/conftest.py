@@ -9,6 +9,7 @@ os.environ["VAULTMIND_STORAGE_DIR"] = f"{_tmp}/storage"
 os.environ["VAULTMIND_ANTHROPIC_API_KEY"] = ""
 os.environ["VAULTMIND_JWT_SECRET"] = "test-secret-that-is-long-enough-for-hs256"
 os.environ["VAULTMIND_SEED_DEMO_DATA"] = "true"
+os.environ["VAULTMIND_DEMO_FOLDERS"] = "false"  # tests start from a flat library and make their own folders
 os.environ["VAULTMIND_ENV"] = "development"
 os.environ["VAULTMIND_SCHEDULER_ENABLED"] = "false"  # tests run background jobs explicitly
 

@@ -689,3 +689,96 @@ showed `&amp;` for "&".
   here (VS Code's download is blocked in this environment). Its logic is tested on its own and
   against a server; the panel script was checked in a browser.
 - The Windows build of the extension on a real PC, until it's installed there.
+
+## N. The library as a file explorer (14 November 2026)
+
+The library was one flat list with a search box and filters. Windows File Explorer was the
+comparison: what does a file manager do that this didn't, and which of it belongs in a document
+library where access is governed?
+
+### N1. What was added
+
+| File Explorer has | VaultMind now has |
+|---|---|
+| Folders, a tree in the navigation pane | Folders inside folders (8 deep), a tree on the left with document counts |
+| Address bar, Back, Up | A path you can click, the browser's Back, Up (Alt+Up or Backspace); the folder is in the address, so a link opens it |
+| Views: details, list, tiles, content | The same four; details has sortable columns (name, date modified, type, size). The choice is remembered |
+| Sort by, Group by | Sort by name, date, type, size, classification or team; group by team, classification, type or date |
+| Selecting: click, Ctrl, Shift, Ctrl+A, checkboxes | The same, with a checkbox on every row for touch and keyboard |
+| Command bar | Rename, Move to, Pin, Download, Delete, Sort, View, Details, Preview; each is enabled only when it can be done to the selection |
+| Right-click menu, Shift+F10 | A menu for the selection (and one for the empty space: New folder, Upload, Paste, Select all) |
+| F2, Del, Ctrl+X / Ctrl+V, Alt+Enter, Alt+P | The same keys |
+| Drag and drop | Drag documents and folders onto a folder (a tile, the tree, or the path); drag a file in from the computer to upload it there |
+| Details pane, Preview pane | Details: type, size, classification, team, who can open it, folder, dates, version, tags. Preview: the start of the text |
+| Home: Quick access and Recent | Home: what you pinned and what you opened lately |
+| Recycle Bin | Deleted documents are kept 30 days and restored with their sharing, passages and earlier versions |
+| Compress to ZIP | Several documents download as one ZIP |
+| Search in this folder | A search inside a folder looks in it and the folders inside it |
+| Status bar | Items, how many are selected and their size |
+
+Left out on purpose: **Copy** (a second copy of a governed document is what the library map
+flags as a problem; *Copy link* is offered instead), **tabs** (the browser has them; *Open in a
+new tab* is in the menu), and everything about a disk rather than documents (drives, network
+locations, formatting, hidden files, thumbnails of images, extracting archives).
+
+### N2. The rules, because folders and a recycle bin touch access
+
+- **A folder grants nothing.** Who can open a document is decided by the document (policy.py).
+  Moving it changes where it is found and nothing else.
+- **A folder's name can say as much as a title** ("Layoffs 2027"). A person sees a folder only
+  if they made it, or it (or a folder inside it) holds a document they can open or ask for.
+  Admins see all folders. An address for a folder that isn't theirs to see answers 404, the
+  same as one that doesn't exist.
+- **Moving a document needs the right to change it** (its owner, a manager of its team, an
+  admin), and the target folder must be one the person sees. Anyone may make a folder; only its
+  maker or an admin may rename, move or remove it.
+- **Removing a folder deletes nothing.** What was in it moves up to where the folder was,
+  including documents the person removing it can't see.
+- **Deleting works as before, everywhere at once**: search, the assistant, sharing, requests
+  and grants all lose the document in the same transaction. What is new is that a copy of what
+  is needed to restore it (settings, sharing, passages, versions, and the stored file) waits in
+  the recycle bin for 30 days. The bin shows an item only to people who could have deleted it:
+  whoever deleted or uploaded it, managers of its team, and admins.
+- **A restore does not bring back temporary access or pins.** Someone given a document for a
+  week shouldn't get it back by a restore a month later. It does bring back the document's
+  number when nothing has taken it, so old links and citations work again.
+- **A ZIP holds only what the person can open**, at most 100 files and 200 MB, and each file is
+  written to the audit log as a download.
+
+### N3. Risks, and how they're handled
+
+| # | Risk | How it's handled | Proven by |
+|---|---|---|---|
+| N-S1 | A folder name leaks what a person shouldn't know exists | Folders are listed, opened, pinned and used as a target only if the person sees something in them | `test_a_folder_is_seen_only_by_its_maker_and_people_who_see_something_in_it` |
+| N-S2 | Moving a document changes who can open it | It can't: nothing in policy.py reads the folder | `test_moving_a_document_changes_where_it_is_and_never_who_can_open_it` |
+| N-S3 | Anyone rearranges the shared library | Moving needs the right to change the document; folders belong to their maker | `test_moving_needs_the_right_to_change_the_document`, `test_only_the_person_who_made_a_folder_or_an_admin_can_change_it` |
+| N-S4 | A deleted document is still found, or is restored by someone who couldn't have deleted it | The row is deleted as before; the bin is filtered by who could have deleted it, and its routes answer 404 to anyone else | `test_a_deleted_document_is_gone_everywhere_and_waits_in_the_recycle_bin`, `test_the_bin_shows_a_deleted_document_only_to_people_who_could_have_deleted_it` |
+| N-S5 | Restoring loses sharing or history, or brings back access that had lapsed | Sharing, passages and versions are restored; grants and pins are not | `test_restoring_brings_a_document_back_as_it_was` |
+| N-S6 | The bin keeps files forever, or deletes a file something else still uses | A scheduler job empties it after 30 days; a stored file goes only when no document and no bin item points at it | `test_the_bin_empties_itself_after_thirty_days`, `test_deleting_for_good_removes_the_file_unless_something_else_uses_it` |
+| N-S7 | A ZIP hands over files the person can't open | Only documents in their allowed set go in | `test_a_zip_holds_only_the_documents_the_person_can_open` |
+| N-S8 | Folder loops or endless nesting | A folder can't move into itself; 8 levels and 2,000 folders at most | `test_a_folder_cannot_go_inside_itself_or_too_deep` |
+
+### N4. What is not done, or not verified
+
+- **The preview pane opens the document to read it**, so previewing counts as a view in the
+  audit log and in "Recent". It waits a third of a second so arrowing down a list doesn't open
+  every document on the way.
+- **Dragging a file in uploads one at a time**: each upload is scanned and classified first.
+- **Drag and drop was exercised only with a mouse in Chromium locally**; the audit drives
+  moves through the Move to dialog, which is also the keyboard and touch path. Touch dragging
+  is not supported by the browser's drag events.
+- **The live demo's own database** gets the demo folders the first time the new version starts
+  (only when there are no folders yet). That has run in tests and locally, not on Render.
+- Migration 0009 has run on SQLite and PostgreSQL 16 here, not against the live database.
+
+### N5. Tests run and their results (14 November)
+
+| What | Result |
+|---|---|
+| Backend tests, SQLite | **332 passed**, 5 skipped (22 new in `test_library_explorer.py`) |
+| Backend tests, PostgreSQL 16 | **332 passed**, 5 skipped (migration 0009 applied and compared with the models) |
+| Type-check and production build | Clean |
+| Ruff | Clean |
+| Browser audit (Chromium, local) | **756 of 756**, 0 console or network problems. 20 new explorer checks, and four explorer views added to the size and axe sweep (8 widths, light and dark) |
+| Accessibility review (Chromium, local) | **26 of 26**. A first run stopped on a timeout waiting for the assistant's starter questions, before any check of the library; the rerun on a fresh server passed |
+| Firefox and WebKit audits | Not run locally (no Firefox here); CI runs all three browsers |
