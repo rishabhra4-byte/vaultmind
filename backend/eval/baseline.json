@@ -1,39 +1,39 @@
 {
  "summary": {
-  "cases": 229,
-  "recall_at_5": 0.997,
-  "mrr": 0.9881,
-  "ndcg_at_10": 0.9856,
-  "answer_accuracy": 0.9107,
-  "answer_supported": 0.9524,
-  "citation_precision": 0.9449,
-  "abstain_recall": 0.871,
-  "false_abstain_rate": 0.0476,
+  "cases": 321,
+  "recall_at_5": 0.9831,
+  "mrr": 0.9559,
+  "ndcg_at_10": 0.9554,
+  "answer_accuracy": 0.8051,
+  "answer_supported": 0.8729,
+  "citation_precision": 0.8662,
+  "abstain_recall": 0.7455,
+  "false_abstain_rate": 0.1525,
   "deny_accuracy": 1.0,
   "leak_rate": 0.0,
   "leaks": 0,
-  "conflict_recall": 0.9167,
+  "conflict_recall": 1.0,
   "false_conflicts_on_no_conflict_cases": 0,
   "outdated_recall": 1.0,
-  "rank_ms_p50": 9.74,
-  "rank_ms_p95": 14.27,
-  "answer_ms_p50": 15.0,
-  "answer_ms_p95": 21.01
+  "rank_ms_p50": 10.61,
+  "rank_ms_p95": 16.31,
+  "answer_ms_p50": 15.68,
+  "answer_ms_p95": 24.15
  },
  "by_tag": {
   "abstain": {
-   "cases": 31,
-   "correct": 0.871,
+   "cases": 55,
+   "correct": 0.7455,
    "recall_at_5": null
   },
   "acronym": {
    "cases": 11,
-   "correct": 0.8182,
+   "correct": 1.0,
    "recall_at_5": 1.0
   },
   "conflict": {
    "cases": 12,
-   "correct": 0.9167,
+   "correct": 1.0,
    "recall_at_5": 1.0
   },
   "deny": {
@@ -43,8 +43,13 @@
   },
   "fact": {
    "cases": 118,
-   "correct": 0.9492,
+   "correct": 1.0,
    "recall_at_5": 1.0
+  },
+  "fresh": {
+   "cases": 45,
+   "correct": 0.3778,
+   "recall_at_5": 0.9559
   },
   "group": {
    "cases": 1,
@@ -52,14 +57,19 @@
    "recall_at_5": 1.0
   },
   "hard": {
-   "cases": 12,
-   "correct": 0.6667,
+   "cases": 36,
+   "correct": 0.6111,
    "recall_at_5": null
   },
   "injection": {
    "cases": 5,
    "correct": 1.0,
    "recall_at_5": null
+  },
+  "kind": {
+   "cases": 10,
+   "correct": 0.7,
+   "recall_at_5": 1.0
   },
   "multi": {
    "cases": 5,
@@ -71,15 +81,20 @@
    "correct": 1.0,
    "recall_at_5": 1.0
   },
+  "number": {
+   "cases": 12,
+   "correct": 0.8333,
+   "recall_at_5": 1.0
+  },
   "outdated": {
    "cases": 1,
    "correct": 1.0,
    "recall_at_5": 1.0
   },
   "paraphrase": {
-   "cases": 12,
-   "correct": 0.5833,
-   "recall_at_5": 1.0
+   "cases": 58,
+   "correct": 0.3276,
+   "recall_at_5": 0.9397
   },
   "typo": {
    "cases": 14,

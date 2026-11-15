@@ -57,9 +57,18 @@ parents" matched parental leave) is still answered from the wrong text. A simple
 that broke three correct answers on held-out questions and was reverted; embeddings, or a check
 that the answer sentence mentions the subject, are the next things to try.
 
+**12 November:** the word-based search got as far as words go
+([M](production-readiness.md#m-a-search-that-reads-the-sentence-12-november-2026)): amounts
+compared with stated bands, the kind of answer asked for, compound words, a general thesaurus
+as a fallback, documents reranked by their best sentence, and a question about two things no
+longer answered from a sentence about one. Paraphrases are still the weak group (19 of 58 over
+the whole benchmark, 4 of 20 on questions written to be held out), and they are now mostly
+declined rather than answered wrongly. A bigger thesaurus built from word vectors was tried and
+changed one held-out answer, so it was left out. This item stays open for a real model.
+
 ### 3. Real questions in the benchmark
 
-**Why:** the benchmark's 229 questions were written against the demo company. A pilot's own
+**Why:** the benchmark's 321 questions were written against the demo company. A pilot's own
 questions are the real test.
 
 **Built on 4 November:** **Admin → Fix answers** is that review queue: unhelpful answers and

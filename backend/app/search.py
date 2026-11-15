@@ -30,6 +30,9 @@ _ACRONYM_AFTER = re.compile(r"\b((?:[A-Z][a-z]+[ -]){1,5}[A-Za-z][a-z]+)\s+\(([A
 _ACRONYM_BEFORE = re.compile(r"\b([A-Z][A-Z&]{1,7})\s+\(((?:[A-Za-z][a-z]+[ -]){1,5}[A-Za-z][a-z]+)\)")
 
 
+_BUILT_ON = ("ly", "ness", "ship", "ment", "ful", "hood")  # endings that make a new word of a shorter one
+
+
 def _initials_match(acronym: str, phrase: str) -> bool:
     letters = acronym.lower().replace("&", "")
     initials = "".join(w[0] for w in re.split(r"[ -]+", phrase.lower()) if w and w not in ("of", "and", "the", "for"))
@@ -203,6 +206,13 @@ class BM25Index:
                     if not self.appears_in(term, allowed_doc_ids):
                         continue
                     candidates.append((rank, -len(self._postings.get(term, ())), other, how))
+            # A word built on a shorter one the documents use: "nightly" on "night", "mentorship" on "mentor".
+            for suffix in _BUILT_ON:
+                root = word[: -len(suffix)]
+                if word.endswith(suffix) and len(root) >= 4 and root in self._raw:
+                    term = self._raw[root]
+                    if self.appears_in(term, allowed_doc_ids):
+                        candidates.append((0, -len(self._postings.get(term, ())), root, "variant"))
         candidates.sort()
         out: list[tuple[str, str, str]] = []
         for _, _, other, how in candidates:

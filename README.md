@@ -34,9 +34,10 @@ The intern gets nothing from the salary sheet. It is never even sent to the mode
 - **Says when it doesn't know.** When no document the person can open answers the question, it says so, names the words no document mentions, and lists the closest matches as just that, instead of guessing.
 - **Search by meaning, if you want it.** Point VaultMind at an embedding service, run inside the company (Ollama, Hugging Face text-embeddings-inference) or hosted (Voyage AI, OpenAI), and passages that say the same thing in other words are found too. It follows the AI data policy, and whether there's enough evidence to answer is still decided on the words. Off by default, and not yet measured with a real model: see [operations](docs/operations.md#search-by-meaning-optional).
 - **Flags documents that disagree, and old ones.** "These documents disagree: the Expense Reimbursement Policy (updated 2 days ago) says INR 7,000; the Travel Policy 2024 says INR 6,000." Documents a year old, or contradicted by a newer one, are marked as possibly out of date.
-- **Search that forgives.** Misspellings ("reimbursment"), word forms, acronyms the documents define ("PO" for purchase order), compound names like SDE-2, and a reranking step that weighs how much of the question a passage covers. Corrections come only from documents the person can open.
+- **Search that forgives.** Misspellings ("reimbursment"), word forms, acronyms the documents define ("PO" for purchase order), compound names like SDE-2, two words a document writes as one ("rolled out", "rollout"), and ordinary words the documents don't use ("team dinners" finds "team meals"). Corrections and stand-ins come only from documents the person can open.
+- **Search that reads the sentence, not just the words.** "Who can approve a 25% discount?" is answered from "Discounts above 20% need Finance Director approval", not from the list price of INR 25,000 that shares its digits: amounts are compared with the bands a sentence states. "How often" wants a sentence with a frequency. Documents are ranked again by their best sentence, so one that merely shares the question's words falls behind one that answers it. And a question about two things isn't answered from a sentence about one of them: the assistant says it didn't find enough.
 - **Filters.** In the library and the assistant: team, who added it, how recently it was updated, where it comes from. Filters only ever narrow what the person can open.
-- **Measured.** An answer-quality benchmark of 229 questions asked as nine different people, including prompt injections, typos, conflicts and questions nothing answers, scores retrieval, answers, citations, abstaining and leaks, and CI fails if any of them gets worse. On the held-out questions (offline mode): Recall@5 1.00, answer accuracy 0.92, citation precision 0.96, conflicts found 100%, permission leaks 0. See [`backend/eval`](backend/eval/) A manual workflow, *Answer quality with AI*, runs the same questions with real Claude answers (and search by meaning) once an API key is added as a repository secret.
+- **Measured.** An answer-quality benchmark of 321 questions asked as nine different people, including prompt injections, typos, conflicts, amounts, questions worded unlike the documents and questions nothing answers, scores retrieval, answers, citations, abstaining and leaks, and CI fails if any of them gets worse. Offline, over all of them: Recall@5 0.98, answer accuracy 0.81, citation precision 0.87, conflicts found 100%, permission leaks 0. The weak spot is honest and known: questions worded unlike the documents (19 of 58 right; most of the rest are declined rather than answered wrongly), which is what the AI mode and search by meaning are for. See [`backend/eval`](backend/eval/) and [how the search was measured](docs/production-readiness.md#m-a-search-that-reads-the-sentence-12-november-2026). A manual workflow, *Answer quality with AI*, runs the same questions with real Claude answers (and search by meaning) once an API key is added as a repository secret.
 - **Permission-aware AI assistant.** Retrieval runs only over documents the person may open, so the language model never sees anything they aren't cleared for. Answers cite their sources, each citation opens the document at the paragraph it came from, and conversations are saved.
 - **Answers as they're written.** AI answers appear word by word, and *Stop* cancels one. The kept answer still has every citation checked.
 - **Feedback on answers.** Helpful or not, with a reason (wrong, missing something, wrong source, should have said it didn't know) and a note. Admins see the unhelpful ones without who marked them, and `python -m app.cli export-feedback` turns them into draft benchmark questions.
@@ -140,7 +141,7 @@ Search follows the same rule. Content matching only ever runs over documents the
 
 ### Design decisions
 
-- **Words first, meaning optional.** BM25 with a reranker needs no model or vector database, is fast and explainable, and is strong on the keyword-heavy questions people type when looking for a company file. Search by meaning is an optional extra signal for paraphrased questions (the benchmark's weakest group), with vectors kept in the database and compared in plain Python: no vector database, no new dependency. It isn't on by default because it hasn't been measured with a real model; the benchmark can do that (`python -m eval.run --embeddings`).
+- **Words first, meaning optional.** BM25 with a reranker needs no model or vector database, is fast and explainable, and is strong on the keyword-heavy questions people type when looking for a company file. Search by meaning is an optional extra signal for paraphrased questions (the benchmark's weakest group by far: words alone get 19 of 58 right), with vectors kept in the database and compared in plain Python: no vector database, no new dependency. It isn't on by default because it hasn't been measured with a real model; the benchmark can do that (`python -m eval.run --embeddings`).
 - **Content-addressed storage.** Files are stored by SHA-256, so identical uploads share one blob and duplicates are detected. Moving to S3 means replacing three functions.
 - **Discoverability is a per-document choice.** Showing a locked title helps people find the right owner, but restricted documents never leak even their existence. Unknown and undiscoverable documents both return `404`.
 
@@ -148,7 +149,7 @@ Search follows the same rule. Content matching only ever runs over documents the
 
 **Backend:** Python 3.12, FastAPI, SQLAlchemy 2, Alembic, PostgreSQL (SQLite for local runs), JWT auth with bcrypt, Anthropic API, pypdf
 **Frontend:** React 18, TypeScript, Vite, React Router, with no UI framework, self-hosted fonts
-**Quality:** pytest (226 tests, on SQLite and PostgreSQL, plus 4 opt-in live Claude checks; Google, Microsoft, Slack, SMTP, ClamAV and sign-in are tested against local fakes of their APIs), an answer-quality benchmark with a CI gate, a 447-check browser audit run in Chromium, Firefox and WebKit (Playwright + axe), an accessibility review, performance checks, Ruff, pip-audit and npm audit, and a CI job that tests the Docker image itself
+**Quality:** pytest (326 tests, on SQLite and PostgreSQL, plus 4 opt-in live Claude checks; Google, Microsoft, Slack, SMTP, ClamAV and sign-in are tested against local fakes of their APIs), an answer-quality benchmark with a CI gate, a 447-check browser audit run in Chromium, Firefox and WebKit (Playwright + axe), an accessibility review, performance checks, Ruff, pip-audit and npm audit, and a CI job that tests the Docker image itself
 
 ## Run it
 
@@ -230,7 +231,7 @@ The Docker image runs in production mode. On top of the Quickest steps:
 
 ```bash
 cd backend
-pytest                 # 226 tests: policy, scanner, search, API flows, leakage, security, migrations, AI errors and
+pytest                 # 326 tests: policy, scanner, search, API flows, leakage, security, migrations, AI errors and
                        # data policy, connectors, sync, sign-in, sessions, backups, malware scanning, metrics, Slack,
                        # the assistant's evidence, actions and filters, and admin tools
 python -m eval.run --check   # answer-quality benchmark; fails if anything got worse than eval/baseline.json
@@ -313,6 +314,7 @@ backend/
     seed.py          demo company (and demo_drive/, its synced shared folder)
   alembic/           database migrations (run automatically on start)
   eval/              answer-quality benchmark: cases, runner, baseline
+  scripts/           build_thesaurus.py (rebuilds app/data/thesaurus.json.gz from WordNet; not needed to run)
   tests/
 frontend/
   src/pages/         Landing, Login, Assistant, Library, Document, Requests, HowItWorks, Admin (+ admin/ sections), NotFound
@@ -344,3 +346,5 @@ The [roadmap](docs/roadmap.md): running as several instances, better answers to 
 ## License
 
 MIT
+
+The general-English thesaurus in `backend/app/data/` is derived from WordNet 3.0, Copyright 2006 by Princeton University, used under the [WordNet license](backend/app/data/WORDNET-LICENSE).
