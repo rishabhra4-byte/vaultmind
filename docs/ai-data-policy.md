@@ -91,7 +91,7 @@ answers to people who can open it, and the answer says why the AI didn't read it
 | Search by meaning sends only passages the AI may read, masked; questions are masked too | `test_only_what_the_ai_may_read_is_sent_and_secrets_are_masked` |
 | Turning AI reading off for a document drops its vectors at once | `test_turning_ai_off_for_a_document_drops_its_vectors` |
 | Search by meaning never brings in a document the person can't open | `test_meaning_never_reaches_documents_the_person_cannot_open` |
-| Nothing the person can't open is sent or leaked | The answer-quality benchmark's leak check over 229 questions: 0 leaks (`python -m eval.run`) |
+| Nothing the person can't open is sent or leaked | The answer-quality benchmark's leak check over 321 questions: 0 leaks (`python -m eval.run`) |
 
 These tests use a stand-in for the AI service that records everything it receives. A run
 against the real API is a separate, opt-in test (`tests/test_live_anthropic.py`).

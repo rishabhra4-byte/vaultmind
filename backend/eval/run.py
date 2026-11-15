@@ -90,6 +90,8 @@ def shingles(text: str) -> set[tuple[str, ...]]:
 
 
 def split_of(case_id: str) -> str:
+    if case_id.startswith("fresh-"):
+        return "test"  # written after the search was tuned, and never tuned on
     return "test" if int(hashlib.sha1(case_id.encode()).hexdigest(), 16) % 10 < 4 else "dev"
 
 

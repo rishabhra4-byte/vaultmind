@@ -57,7 +57,7 @@ the server for every request: listing, opening, downloading, searching, answerin
   never shown at all ([A3, A4](production-readiness.md#a-critical-security-and-data-loss-risks)).
 - **The assistant can't leak them either.** Retrieval is limited to openable documents before any
   text is gathered, and citations the model makes up are removed. The
-  [answer-quality benchmark](../backend/eval/) asks 229 questions as nine different people,
+  [answer-quality benchmark](../backend/eval/) asks 321 questions as nine different people,
   including prompt injections and questions about files they can't open, and checks every
   answer for text, secret phrases, document ids or hints from documents the asker can't open:
   **0 leaks**, checked in CI on every change.
