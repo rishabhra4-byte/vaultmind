@@ -4,7 +4,7 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import audit, embeddings, malware, metrics, retrieval, storage
+from .. import audit, embeddings, explorer, malware, metrics, retrieval, storage
 from ..config import get_settings
 from ..database import get_db
 from ..deps import current_user
@@ -54,7 +54,6 @@ from ..services import (
     access_view,
     index_document,
     ingest_document,
-    remove_document,
     replace_content,
     unindex_document,
     viewer,
@@ -112,6 +111,7 @@ def list_documents(
     source: str | None = Query(None, description='"uploaded", or a source id'),
     owner_id: int | None = Query(None, description="only documents this person uploaded"),
     updated_within_days: int | None = Query(None, ge=1, le=3650),
+    folder_id: int | None = Query(None, description="only this folder; a search also looks in the folders inside it"),
     include_locked: bool = True,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
@@ -124,6 +124,13 @@ def list_documents(
         # Only what the library already shows about a locked document (team, classification,
         # uploader, date) is used to filter it, so filters reveal nothing new.
         locked = filters.narrow(view, {i for i, d in view.docs.items() if is_discoverable_to(user, d)} - view.allowed)
+    if folder_id is not None:
+        folders = explorer.all_folders(db)
+        if folder_id not in explorer.visible_folders(view, folders):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Folder not found")
+        inside = explorer.subtree(folders, folder_id) if q and q.strip() else {folder_id}
+        openable = {i for i in openable if view.docs[i].folder_id in inside}
+        locked = {i for i in locked if view.docs[i].folder_id in inside}
 
     if q and q.strip():
         # Content search (with typo, word-form and acronym matching) only over documents the
@@ -137,14 +144,15 @@ def list_documents(
         ordered = sorted(openable | locked, key=lambda i: (i in view.allowed, view.docs[i].updated_at), reverse=True)
 
     pending = _pending_ids(db, user)
-    return [document_out(view.docs[i], view, pending) for i in ordered]
+    pins = set(explorer.pinned(db, user)[0])
+    return [document_out(view.docs[i], view, pending, pins) for i in ordered]
 
 
 @router.get("/documents/{doc_id}", response_model=DocumentDetail)
 def get_document(doc_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     view = access_view(db, user)
     doc = _visible_or_404(view, doc_id)
-    base = document_out(doc, view, _pending_ids(db, user))
+    base = document_out(doc, view, _pending_ids(db, user), set(explorer.pinned(db, user)[0]))
     preview, passages = None, []
     if base.access.allowed:
         preview = "\n\n".join(c.text for c in doc.chunks)[:6000]
@@ -320,10 +328,13 @@ async def upload(
     share_team_ids: str | None = Form(None),
     share_group_ids: str | None = Form(None),
     tags: str | None = Form(None),
+    folder_id: int | None = Form(None),
     acknowledge_sensitivity: bool = Form(False),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
+    if folder_id is not None and folder_id not in explorer.visible_folders(access_view(db, user), explorer.all_folders(db)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Folder not found")
     team_id = owner_team_id or user.team_id
     if team_id != user.team_id and not user.is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only upload documents for your own team")
@@ -378,6 +389,7 @@ async def upload(
         tags=[t for t in (tags or "").split(",") if t.strip()] or None,
     )
     doc = ingest.document
+    doc.folder_id = folder_id
     audit.record(
         db,
         user,
@@ -473,7 +485,7 @@ def delete_document(doc_id: int, user: User = Depends(current_user), db: Session
     if doc.source_id is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Synced files are deleted in their source, then disappear here")
     audit.record(db, user, "document.delete", "document", doc.id, title=doc.title)
-    remove_document(db, doc)  # the stored file goes after the commit, if nothing else uses it
+    explorer.recycle(db, user, doc)  # gone from everywhere; restorable from the recycle bin for a while
     db.commit()
 
 

@@ -352,7 +352,8 @@ export default function DocumentPage() {
         <Modal title="Delete this document?" onClose={() => setConfirmDelete(false)}>
           <div className="stack">
             <p className="muted">
-              “{doc.title}” will be removed for everyone, including people with temporary access. This can't be undone.
+              “{doc.title}” will be removed for everyone, including people with temporary access. It waits in the library's recycle bin for
+              30 days, where you can restore it.
             </p>
             <div className="row end">
               <button className="btn ghost" onClick={() => setConfirmDelete(false)}>

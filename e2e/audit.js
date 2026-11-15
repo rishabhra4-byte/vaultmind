@@ -1225,6 +1225,252 @@ async function signOut(page) {
     await p.context().close();
   });
 
+  // ---------------------------------------------------------------- library as a file explorer
+  await block('library explorer', async () => {
+    const p = await newPage(browser, 'rohan-explorer');
+    await signIn(p, 'Rohan Iyer');
+    const api = (path, init) =>
+      p.evaluate(
+        async ([path, init]) => {
+          const r = await fetch(path, { ...init, headers: { Authorization: `Bearer ${localStorage.getItem('vaultmind.token')}`, 'Content-Type': 'application/json' } });
+          return r.status === 204 ? null : r.json();
+        },
+        [path, init || {}],
+      );
+    const rows = () => p.$$eval('.doc-row .doc-title', (els) => els.map((e) => e.textContent.replace(' (locked)', '')));
+    await p.goto(BASE + '/library');
+    await p.waitForSelector('.doc-row');
+    const everything = (await rows()).length;
+
+    await check('explorer: the folder tree and the folder tiles list the same top folders', async () => {
+      const tree = await p.$$eval('.nav-tree > li > .nav-item .nav-name', (els) => els.map((e) => e.textContent));
+      const tiles = await p.$$eval('.folder-strip .folder-name', (els) => els.map((e) => e.textContent));
+      return (tree.length >= 5 && tree.join() === tiles.join() && tree.includes('Engineering')) || `${tree} / ${tiles}`;
+    });
+    await check('explorer: opening a folder shows what is in it, its path, and keeps it in the address', async () => {
+      await p.click('.folder-tile:has-text("Engineering") .folder-open');
+      await p.waitForSelector('.crumb[aria-current="page"]:has-text("Engineering")');
+      await p.waitForSelector('.doc-row');
+      const inside = await rows();
+      const sub = await p.$$eval('.folder-strip .folder-name', (els) => els.map((e) => e.textContent));
+      return (/[?&]folder=\d+/.test(p.url()) && inside.length === 3 && inside.includes('API Design Guidelines') && sub.join() === 'Operations') || `${p.url()} ${inside} / ${sub}`;
+    });
+    await check('explorer: a search in a folder also looks in the folders inside it, and nowhere else', async () => {
+      await p.fill('.search-box input', 'incident');
+      await p.waitForSelector('.doc-row .doc-title:has-text("Incident Response Runbook")');
+      const found = await rows();
+      await p.fill('.search-box input', 'reimbursement');
+      await p.waitForSelector('.empty:has-text("Nothing matches")');
+      await p.fill('.search-box input', '');
+      await p.waitForFunction(() => document.querySelectorAll('.doc-row').length === 3);
+      return !found.includes('Expense Reimbursement Policy') || found.join();
+    });
+    await check('explorer: Up, the browser Back button and the address bar all move through folders', async () => {
+      await p.click('.folder-tile:has-text("Operations") .folder-open');
+      await p.waitForSelector('.crumb[aria-current="page"]:has-text("Operations")');
+      await p.click('button[aria-label="Up one folder"]');
+      await p.waitForSelector('.crumb[aria-current="page"]:has-text("Engineering")');
+      await p.goBack();
+      await p.waitForSelector('.crumb[aria-current="page"]:has-text("Operations")');
+      await p.click('.crumb:has-text("All documents")');
+      await p.waitForFunction((n) => document.querySelectorAll('.doc-row').length === n, everything);
+      return !p.url().includes('folder=') || p.url();
+    });
+    await check('explorer: new folder', async () => {
+      await p.click('button:has-text("New folder")');
+      await p.fill('dialog.modal input', 'Audit shelf');
+      await p.click('dialog button:has-text("Create folder")');
+      await toast(p, 'Created the folder');
+      await p.waitForSelector('.folder-tile:has-text("Audit shelf")');
+      await p.click('button:has-text("New folder")');
+      await p.fill('dialog.modal input', 'audit SHELF');
+      await p.click('dialog button:has-text("Create folder")');
+      await p.waitForSelector('dialog .error:has-text("already a folder")');
+      await p.keyboard.press('Escape');
+      return true;
+    });
+    await check('explorer: selecting shows the count and size, and the details pane describes the document', async () => {
+      await p.check('.doc-row:has-text("Backend Onboarding Guide") .row-check input');
+      await p.waitForSelector('.status-bar:has-text("1 selected")');
+      await p.click('.tool:has-text("Details")');
+      await p.waitForSelector('.side-pane .pane-facts');
+      const facts = await p.textContent('.side-pane');
+      return (facts.includes('Backend Onboarding Guide') && facts.includes('Markdown document') && facts.includes('Engineering')) || facts;
+    });
+    await check('explorer: Shift-click selects a range, Ctrl+A everything, Esc nothing', async () => {
+      const boxes = p.locator('.doc-list .row-check input');
+      await p.keyboard.press('Escape');
+      await boxes.nth(1).click();
+      await boxes.nth(4).click({ modifiers: ['Shift'] });
+      const range = await p.$$eval('.doc-row.selected', (els) => els.length);
+      await p.click('h1');
+      await p.keyboard.press('Control+a');
+      const all = await p.$$eval('.doc-row.selected, .folder-tile.selected', (els) => els.length);
+      const total = await p.$$eval('.doc-row, .folder-tile', (els) => els.length);
+      await p.keyboard.press('Escape');
+      const none = await p.$$eval('.selected', (els) => els.length);
+      return (range === 4 && all === total && none === 0) || `${range} / ${all} of ${total} / ${none}`;
+    });
+    await check('explorer: Move to puts a document in a folder, and it is still in All documents', async () => {
+      await p.check('.doc-row:has-text("Backend Onboarding Guide") .row-check input');
+      await p.click('.command-bar .tool:has-text("Move to")');
+      await p.click('dialog .move-row:has-text("Audit shelf")');
+      await p.click('dialog button:has-text("Move here")');
+      await toast(p, 'Moved 1 item to Audit shelf');
+      await p.waitForSelector('.folder-tile:has-text("Audit shelf"):has-text("1 document")');
+      const still = (await rows()).includes('Backend Onboarding Guide');
+      await p.click('.folder-tile:has-text("Audit shelf") .folder-open');
+      await p.waitForSelector('.doc-row');
+      return (still && (await rows()).join() === 'Backend Onboarding Guide') || `${still} ${await rows()}`;
+    });
+    await check('explorer: a document someone else owns stays put, with the reason', async () => {
+      await p.click('.crumb:has-text("All documents")');
+      await p.waitForFunction((n) => document.querySelectorAll('.doc-row').length === n, everything);
+      const row = '.doc-row:has-text("Employee Handbook 2026")';
+      await p.check(`${row} .row-check input`);
+      const disabled = await p.isDisabled('.command-bar .tool:has-text("Move to")');
+      await p.keyboard.press('Escape');
+      return disabled || 'Move to was offered for a document Rohan can\'t change';
+    });
+    await check('explorer: right-click opens a menu for the row; the keyboard opens the same menu and Esc gives focus back', async () => {
+      await p.click('.doc-row:has-text("API Design Guidelines")', { button: 'right', position: { x: 330, y: 10 } });
+      await p.waitForSelector('.menu[role="menu"]');
+      const items = await p.$$eval('.menu .menu-label', (els) => els.map((e) => e.textContent));
+      await p.keyboard.press('Escape');
+      await p.waitForSelector('.menu', { state: 'detached' });
+      await p.focus('.doc-row:has-text("API Design Guidelines") .row-check input');
+      await p.keyboard.press('Shift+F10');
+      await p.waitForSelector('.menu[role="menu"]');
+      const first = await p.evaluate(() => document.activeElement?.textContent);
+      await p.keyboard.press('ArrowDown');
+      const second = await p.evaluate(() => document.activeElement?.textContent);
+      await p.keyboard.press('Escape');
+      await p.waitForSelector('.menu', { state: 'detached' });
+      const back = await p.evaluate(() => document.activeElement?.getAttribute('aria-label'));
+      await p.keyboard.press('Escape');
+      return (items.includes('Rename') && items.includes('Pin to Home') && first.startsWith('Open') && second.startsWith('Open in a new tab') && back === 'Select API Design Guidelines') || `${items} / ${first} / ${second} / ${back}`;
+    });
+    await check('explorer: rename with F2', async () => {
+      await p.check('.folder-tile:has-text("Audit shelf") .row-check input');
+      await p.keyboard.press('F2');
+      await p.fill('dialog.modal input', 'Audit bookcase');
+      await p.click('dialog button:has-text("Rename")');
+      await toast(p, 'Renamed to');
+      await p.waitForSelector('.folder-tile:has-text("Audit bookcase")');
+      return (await p.$('.nav-tree .nav-name:has-text("Audit bookcase")')) !== null;
+    });
+    await check('explorer: Details view has sortable columns, and the view is remembered', async () => {
+      await p.click('.command-bar .tool:has-text("Details")'); // close the pane so the columns fit
+      await p.click('.tool:has-text("View")');
+      await p.click('.menu-item:has-text("Details")');
+      await p.waitForSelector('.doc-list[data-view="details"]');
+      await p.click('.col-head.col-name');
+      const up = await rows();
+      await p.click('.col-head.col-name');
+      const down = await rows();
+      const sorted = [...up].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+      await p.reload();
+      await p.waitForSelector('.doc-list[data-view="details"] .doc-row');
+      const kept = (await rows()).join() === down.join();
+      const size = await p.textContent('.doc-row >> nth=0 >> .col-size');
+      await p.click('.tool:has-text("View")');
+      await p.click('.menu-item:has-text("Content")');
+      await p.click('.tool:has-text("Sort")');
+      await p.click('.menu-item:has-text("Best match")');
+      return (up.join() === sorted.join() && down.join() === [...sorted].reverse().join() && kept && /\d (B|KB|MB)/.test(size)) || `${up.slice(0, 3)} / ${down.slice(0, 3)} / kept ${kept} / ${size}`;
+    });
+    await check('explorer: group by team', async () => {
+      await p.click('.tool:has-text("Sort")');
+      await p.click('.menu-item:has-text("Group by team")');
+      await p.waitForSelector('.doc-group');
+      const groups = await p.$$eval('.doc-group h2', (els) => els.map((e) => e.textContent.replace(/\s*\d+$/, '').trim()));
+      const teams = await p.$$eval('.doc-row .team-chip', (els) => [...new Set(els.map((e) => e.textContent))]);
+      await p.click('.tool:has-text("Sort")');
+      await p.click('.menu-item:has-text("No groups")');
+      await p.waitForSelector('.doc-group', { state: 'detached' });
+      return (groups.length > 2 && groups.join() === [...teams].sort().join()) || `${groups} / ${teams}`;
+    });
+    await check('explorer: a pinned document is on Home, with what was opened lately', async () => {
+      await p.check('.doc-row:has-text("API Design Guidelines") .row-check input');
+      await p.click('.command-bar .tool:has-text("Pin")');
+      await toast(p, 'Pinned to Home');
+      await p.click('.nav-go:has-text("Home")');
+      await p.waitForSelector('h2:has-text("Pinned") + .doc-list .doc-row:has-text("API Design Guidelines")');
+      const recent = await p.$$eval('h2:has-text("Recent") + .doc-list .doc-title', (els) => els.length);
+      return (p.url().includes('view=home') && recent > 0) || `${p.url()} recent ${recent}`;
+    });
+    await check('explorer: the preview pane shows the start of the document', async () => {
+      await p.check('.doc-row:has-text("API Design Guidelines") .row-check input');
+      await p.click('.command-bar .tool:has-text("Preview")');
+      await p.waitForSelector('.pane-preview');
+      const text = await p.textContent('.pane-preview');
+      await p.click('.command-bar .tool:has-text("Preview")');
+      return text.length > 200 || text;
+    });
+    await check('explorer: two documents download as one ZIP', async () => {
+      await p.click('.nav-go:has-text("All documents")');
+      await p.waitForFunction((n) => document.querySelectorAll('.doc-row').length === n, everything);
+      await p.check('.doc-row:has-text("API Design Guidelines") .row-check input');
+      await p.check('.doc-row:has-text("System Architecture Overview") .row-check input');
+      const [dl] = await Promise.all([p.waitForEvent('download'), p.click('.command-bar .tool:has-text("Download ZIP")')]);
+      await p.keyboard.press('Escape');
+      return dl.suggestedFilename() === 'VaultMind documents.zip' || dl.suggestedFilename();
+    });
+    await check('explorer: Delete sends a document to the recycle bin, and Restore brings it back with its number', async () => {
+      const made = await p.evaluate(async () => {
+        const form = new FormData();
+        form.append('file', new Blob(['Seating plan for the audit: window desks go to whoever arrives first.'], { type: 'text/plain' }), 'seating.txt');
+        form.append('title', 'Audit seating plan');
+        form.append('classification', 'internal');
+        const r = await fetch('/api/documents', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('vaultmind.token')}` }, body: form });
+        return (await r.json()).document.id;
+      });
+      await p.reload();
+      await p.waitForSelector('.doc-row:has-text("Audit seating plan")');
+      await p.check('.doc-row:has-text("Audit seating plan") .row-check input');
+      await p.keyboard.press('Delete');
+      await p.waitForSelector('dialog:has-text("recycle bin")');
+      await p.click('dialog button.danger:has-text("Delete")');
+      await toast(p, 'Moved 1 document to the recycle bin');
+      await p.waitForSelector('.doc-row:has-text("Audit seating plan")', { state: 'detached' });
+      const searchable = (await api('/api/documents?q=seating')).some((d) => d.title === 'Audit seating plan');
+      await p.click('.nav-go:has-text("Recycle bin")');
+      await p.waitForSelector('.bin-row:has-text("Audit seating plan")');
+      await p.click('.bin-row:has-text("Audit seating plan") button:has-text("Restore")');
+      await toast(p, 'Restored');
+      await p.click('.nav-go:has-text("All documents")');
+      await p.waitForSelector('.doc-row:has-text("Audit seating plan")');
+      const back = (await api('/api/documents?q=seating')).find((d) => d.title === 'Audit seating plan');
+      return (!searchable && back && back.id === made) || `searchable while deleted: ${searchable}, back: ${JSON.stringify(back && back.id)} of ${made}`;
+    });
+    await check('explorer: removing a folder deletes nothing; what was in it moves up', async () => {
+      await p.check('.folder-tile:has-text("Audit bookcase") .row-check input');
+      await p.keyboard.press('Delete');
+      await p.waitForSelector('dialog:has-text("deletes nothing")');
+      await p.click('dialog button.danger:has-text("Remove")');
+      await toast(p, 'Folder removed');
+      await p.waitForSelector('.folder-tile:has-text("Audit bookcase")', { state: 'detached' });
+      const doc = (await api('/api/documents?q=backend onboarding')).find((d) => d.title === 'Backend Onboarding Guide');
+      return (doc && doc.folder_id === null) || JSON.stringify(doc && doc.folder_id);
+    });
+    await check('explorer: a folder that is not yours to see says so instead of showing an empty list', async () => {
+      await p.goto(BASE + '/library?folder=99999');
+      await p.waitForSelector('.empty:has-text("That folder isn\'t here")');
+      return true;
+    });
+    await check('explorer: on a phone the places are a row of buttons and nothing scrolls sideways', async () => {
+      await p.setViewportSize({ width: 390, height: 844 });
+      await p.goto(BASE + '/library');
+      await p.waitForSelector('.doc-row');
+      const overflow = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      const tree = await p.isVisible('.nav-tree');
+      const places = await p.isVisible('.nav-go:has-text("Recycle bin")');
+      await p.setViewportSize({ width: 1280, height: 800 });
+      return (overflow <= 0 && !tree && places) || `overflow ${overflow}, tree ${tree}, places ${places}`;
+    });
+    await p.context().close();
+  });
+
   // ---------------------------------------------------------------- library map (after WinDirStat)
   await block('library map', async () => {
     // Two teams that can't see each other's internal files upload the same file: a duplicate.
@@ -1374,6 +1620,15 @@ async function signOut(page) {
     ['signin', '/signin', null],
     ['assistant', '/', 'Rohan Iyer'],
     ['library', '/library', 'Rohan Iyer'],
+    ['library-folder', '/library?folder=1', 'Rohan Iyer'],
+    ['library-home', '/library?view=home', 'Rohan Iyer'],
+    ['library-bin', '/library?view=bin', 'Rohan Iyer'],
+    ['library-selected', '/library', 'Rohan Iyer', async (p) => {
+      await p.waitForSelector('.doc-row');
+      await p.check('.doc-row >> nth=0 >> .row-check input');
+      if (!(await p.$('.side-pane'))) await p.click('.command-bar .tool:has-text("Details")');
+      await p.waitForSelector('.side-pane .pane-facts');
+    }],
     ['document', '/library/6', 'Rohan Iyer'],
     ['requests', '/requests', 'Rohan Iyer'],
     ['how-it-works', '/how-it-works', 'Rohan Iyer'],

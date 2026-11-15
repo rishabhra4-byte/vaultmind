@@ -25,6 +25,7 @@ from .routers import (
     directory,
     documents,
     glossary,
+    library,
     me,
     notifications,
     quality,
@@ -32,7 +33,7 @@ from .routers import (
     sources,
 )
 from .scheduler import Scheduler
-from .seed import seed, seed_verified_answers
+from .seed import seed, seed_demo_folders, seed_verified_answers
 from .services import rebuild_index
 from .sync import reset_stuck_syncs
 
@@ -69,6 +70,8 @@ async def lifespan(app: FastAPI):
         if settings.demo_enabled and seed(db):
             seed_verified_answers(db)
             log.info("Seeded demo company data")
+        if settings.demo_enabled and settings.demo_folders and seed_demo_folders(db):
+            log.info("Arranged the demo documents into folders")
         reset_stuck_syncs(db)
         log.info("Search index built with %d documents", rebuild_index(db))
     scheduler = Scheduler() if settings.scheduler_enabled else None
@@ -194,6 +197,7 @@ for r in (
     auth.router,
     device.router,
     documents.router,
+    library.router,
     assistant.router,
     access.router,
     admin.router,

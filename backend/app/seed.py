@@ -282,6 +282,46 @@ if __name__ == "__main__":
         print("Seeded demo data" if seed(session) else "Database already has data; nothing to do")
 
 
+# Folders for the public demo's library: (folder, the folder it is in, documents by title).
+DEMO_FOLDERS = [
+    ("People and HR", None, ["Employee Handbook 2026", "Holiday Calendar 2026", "Code of Conduct", "Remote Work Guidelines"]),
+    ("Hiring", "People and HR", ["Recruitment Process", "Interview Scorecard Template", "Intern Starter Pack"]),
+    ("Reviews and pay", "People and HR", ["Performance Review Guidelines for Managers", "Salary Bands 2026"]),
+    ("Finance", None, ["Expense Reimbursement Policy", "Vendor Payment Process", "Q3 2026 Financial Report"]),
+    ("Archive", "Finance", ["Travel Policy 2024"]),
+    ("Engineering", None, ["Backend Onboarding Guide", "API Design Guidelines", "System Architecture Overview"]),
+    ("Operations", "Engineering", ["Incident Response Runbook", "Release Checklist", "On-call Rotation"]),
+    ("Sales", None, ["Sales Playbook", "Pricing and Discount Approval Matrix", "Q4 Territory Plan"]),
+    ("Office and IT", None, ["IT Security Basics", "Office Guide", "Wi-Fi and Printers"]),
+]
+
+
+def seed_demo_folders(db: Session) -> int:
+    """Arrange the public demo's documents into folders, once. Kept out of `seed` like the
+    verified answers: tests and the benchmark start from a flat library. Board notes, the
+    hiring plan and the acquisition file stay at the top, unfiled."""
+    from .explorer import place
+    from .models import Document, Folder
+
+    if db.scalar(select(Folder.id).limit(1)) is not None:
+        return 0
+    docs = {d.title: d for d in db.scalars(select(Document))}
+    admin = db.scalar(select(User).where(User.is_admin.is_(True)).order_by(User.id))
+    if "Employee Handbook 2026" not in docs or admin is None:
+        return 0
+    made: dict[str, Folder] = {}
+    for name, parent, titles in DEMO_FOLDERS:
+        folder = Folder(name=name, parent_id=made[parent].id if parent else None, created_by=admin.id)
+        db.add(folder)
+        db.flush()
+        made[name] = folder
+        for title in titles:
+            if title in docs:
+                place(docs[title], folder.id)  # arranging a document doesn't make it newer
+    db.commit()
+    return len(made)
+
+
 def seed_verified_answers(db: Session) -> int:
     """Two verified answers for the public demo, so visitors can see one. Kept out of `seed`:
     the tests and the answer-quality benchmark measure search and answers on their own."""

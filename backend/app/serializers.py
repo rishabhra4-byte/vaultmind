@@ -9,7 +9,9 @@ if TYPE_CHECKING:
     from .services import Viewer
 
 
-def document_out(doc: Document, viewer: "Viewer", pending: set[int] = frozenset()) -> DocumentOut:
+def document_out(
+    doc: Document, viewer: "Viewer", pending: set[int] = frozenset(), pins: set[int] | frozenset[int] = frozenset()
+) -> DocumentOut:
     user = viewer.user
     decision = can_view(user, doc, viewer.grants, viewer.groups)
     source = doc.source
@@ -45,6 +47,8 @@ def document_out(doc: Document, viewer: "Viewer", pending: set[int] = frozenset(
         # Where the file lives is only shown to people who can open it.
         source_path=doc.source_path if decision.allowed else "",
         external_url=doc.external_url if decision.allowed else None,
+        folder_id=doc.folder_id,
+        pinned=doc.id in pins,
         access=AccessInfo(
             allowed=decision.allowed,
             code=decision.code,

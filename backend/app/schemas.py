@@ -133,6 +133,8 @@ class DocumentOut(BaseModel):
     source: SourceRef | None = None
     source_path: str = ""
     external_url: str | None = None
+    folder_id: int | None = None
+    pinned: bool = False  # by the person asking
     access: AccessInfo
 
 
@@ -434,3 +436,71 @@ class SourcesOut(BaseModel):
     sources: list[SourceOut]
     available: dict[str, bool]  # which kinds are set up on the server
     folder_roots: list[str]
+
+
+# ----------------------------------------------------------------------------- library explorer
+
+
+class FolderOut(BaseModel):
+    id: int
+    name: str
+    parent_id: int | None
+    documents: int  # documents directly inside that the person asking can see
+    can_edit: bool
+    pinned: bool = False
+
+
+class FolderCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    parent_id: int | None = None
+
+
+class FolderUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=200)
+    parent_id: int | None = None  # sent as null to move the folder to the top
+
+
+class MoveIn(BaseModel):
+    document_ids: list[int] = Field(default_factory=list, max_length=500)
+    folder_ids: list[int] = Field(default_factory=list, max_length=100)
+    to: int | None = None  # a folder, or null for the top of the library
+
+
+class MoveSkipped(BaseModel):
+    id: int
+    title: str
+    reason: str
+
+
+class MoveOut(BaseModel):
+    moved: int
+    skipped: list[MoveSkipped]
+
+
+class PinIn(BaseModel):
+    document_id: int | None = None
+    folder_id: int | None = None
+
+
+class LibraryHome(BaseModel):
+    pinned_documents: list[DocumentOut]
+    pinned_folders: list[FolderOut]
+    recent: list[DocumentOut]
+
+
+class DeletedOut(BaseModel):
+    id: int
+    original_id: int
+    title: str
+    filename: str
+    size: int
+    classification: Classification
+    owner_team: str
+    folder: str | None  # where it was, if that folder is still there
+    deleted_by: str | None
+    deleted_at: UTCDatetime
+    expires_at: UTCDatetime
+
+
+class ZipIn(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=500)
