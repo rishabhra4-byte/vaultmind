@@ -947,12 +947,13 @@ Four more checks were failing behind O-2 where the app was right and the check w
 | Accessibility review (Chromium, local) | **26 of 26** |
 | Type-check and production build | Clean |
 | Backend tests | Not rerun locally: no backend file changed. CI runs them |
-| Firefox and WebKit audits | Not run locally; CI runs all three browsers. With the strict rule they may show failures of their own that Chromium doesn't have |
+| CI, first run with the strict rule | Chromium, Firefox and WebKit audits **passed**, as did both backend jobs, the frontend and the VS Code extension. The **Docker job failed on one check**: "the session is listed as the VS Code extension" read the account dialog before its list of sessions had arrived. A seventh check the hole had been hiding, this one only when the server is slow. It now waits for the list |
+| Browser audit after that fix (Chromium, local) | **758 of 758** |
 
 ### O4. Still unverified
 
 - Stop on the live demo: offline answers there come back too fast to press it. Reproduced and
   fixed against a local server with the reply held back three seconds.
-- Whether Firefox and WebKit move the Tab starting point the way Chromium does (O-4).
+- Other checks may read too early in the same way and only fail on a slow server. Each one that does will now show up as a failure instead of passing.
 - Nothing moves focus when the app changes page without a reload. Straight after signing in,
   the first Tab carries on from where the pressed button was.

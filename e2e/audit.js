@@ -1638,6 +1638,8 @@ async function signOut(page) {
       await p.goto(BASE + '/');
       await p.click('button[aria-label="Your account and sessions"]');
       await p.waitForSelector('dialog[open]');
+      // The dialog opens before its list of sessions has arrived.
+      await p.waitForSelector('dialog[open] :text("VS Code extension")', { timeout: 5000 }).catch(() => {});
       const t = await p.textContent('dialog[open]');
       await p.keyboard.press('Escape');
       return t.includes('VS Code extension') || t;
