@@ -51,7 +51,9 @@ export function DocAsk({ doc, onClose }: { doc: DocDetail; onClose: () => void }
   }, [doc.id]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    // Only once there's a conversation to follow. Scrolling to an element also makes it where
+    // the Tab key starts from, so on an empty page the first Tab would pass the skip link.
+    if (messages.length || sending) endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, sending]);
 
   useEffect(() => {

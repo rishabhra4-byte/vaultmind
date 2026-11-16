@@ -85,7 +85,9 @@ export default function Assistant() {
   }, [conversationId, setParams]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    // Only once there's a conversation to follow. Scrolling to an element also makes it where
+    // the Tab key starts from, so on an empty page the first Tab would pass the skip link.
+    if (messages.length || sending) endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, sending]);
 
   const send = useCallback(
@@ -282,12 +284,15 @@ export default function Assistant() {
               aria-label="Message"
               maxLength={2000}
             />
+            {/* Keys keep these two apart. Without them React turns the Stop button into the Send
+                button while Stop's own click is still being handled, and the browser then submits
+                the form with the question that was just put back: Stop would ask it again. */}
             {sending ? (
-              <button type="button" className="btn stop" onClick={() => abortRef.current?.abort()} aria-label="Stop waiting">
+              <button key="stop" type="button" className="btn stop" onClick={() => abortRef.current?.abort()} aria-label="Stop waiting">
                 <span className="stop-square" aria-hidden />
               </button>
             ) : (
-              <button className="btn primary" disabled={!draft.trim()} aria-label="Send">
+              <button key="send" className="btn primary" disabled={!draft.trim()} aria-label="Send">
                 <IconSend />
               </button>
             )}

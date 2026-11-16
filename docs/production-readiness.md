@@ -116,6 +116,8 @@ The details are in [F](#f-release-recommendation) and [G](#g-company-features-28
 
 Nothing here has been filtered out. In every run where the browser audit got to the end, the app passed every functional check in every browser. Every failure was in the test setup, not the app.
 
+> **Corrected on 16 November 2026.** Until that day the audit counted a check as passed when it returned a message saying what it had found instead. Six checks were failing that way and were reported as passing, two of them real faults in the app. Every audit total in this document before section O was counted with that hole. See [section O](#o-a-hole-in-the-browser-audit-and-what-it-hid-16-november-2026).
+
 | Commit | What changed | Backend ×2 | Frontend | Chromium | Firefox | WebKit | Docker |
 |---|---|---|---|---|---|---|---|
 | `3304ed3` | The hardening work | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -892,3 +894,65 @@ locations, formatting, hidden files, thumbnails of images, extracting archives).
 | Browser audit (Chromium, local) | **756 of 756**, 0 console or network problems. 20 new explorer checks, and four explorer views added to the size and axe sweep (8 widths, light and dark) |
 | Accessibility review (Chromium, local) | **26 of 26**. A first run stopped on a timeout waiting for the assistant's starter questions, before any check of the library; the rerun on a fresh server passed |
 | Firefox and WebKit audits | Not run locally (no Firefox here); CI runs all three browsers |
+
+## O. A hole in the browser audit, and what it hid (16 November 2026)
+
+A check of the library on the live demo found a fault the audit should have caught, and looking
+for why found a worse one in the audit itself.
+
+### O1. What was checked on the live demo
+
+On `vaultmind-demo.onrender.com`, signed in as the demo administrator, in a real browser:
+
+| Action | Result |
+|---|---|
+| New folder, from the button | Worked |
+| Move a document into the folder and back, from the Move dialog | Worked; the document's "updated" date didn't change. **The dialog was drawn wrong** (O2) |
+| Rename with F2, Pin to Home, the "more" menu | Worked |
+| Delete to the recycle bin | Worked: gone from search and from its address at once |
+| Restore | Worked: same id, same settings, tags, dates and file; back in search |
+| Remove the folder | Worked; the demo was left as it was found (28 documents, 9 folders, empty bin) |
+| Several documents as a ZIP | The server's answer was read in the page and held the four files asked for. No file was saved to disk, so the browser's own download step is unverified there |
+| A synced document can't be deleted here | As designed: Delete was switched off for it |
+
+Not checked on the live demo: drag and drop, and uploading by dropping a file.
+
+### O2. Faults found
+
+| # | Fault | How it was found | Fix |
+|---|---|---|---|
+| O-1 | **The Move dialog's radio buttons were stretched across the row**, pushing each folder's name to the far right. The style for text boxes also applied to radio buttons. | Seen on the live demo | Radio buttons are left out of that style (with `:where`, so it weighs what it did and nothing that overrides it changes). The audit now measures the radios. |
+| O-2 | **The audit counted a returned message as a pass.** Eighty-three checks end in `return right || "what was found"`. `check()` failed only on `false` or an error, so for those checks a wrong result was reported as passed, with the message unread. In the code since the audit was written (27 October). The accessibility review had the right rule. | Reading `check()` to add the measurement for O-1 | A returned message now fails the check. |
+| O-3 | **Stop sent the question again.** Pressing Stop put the question back in the box and then asked it a second time. React turned the Stop button into the Send button while Stop's click was still being handled, and the browser then submitted the form. | Hidden by O-2; the check was reading an empty box | The two buttons are separate elements. |
+| O-4 | **On the assistant's page the first Tab passed "Skip to content"** and the whole sidebar. The empty page scrolled to the end of its (empty) conversation as it loaded, and in Chromium the element scrolled to becomes where Tab starts from. The same on a document's ask panel. | Hidden by O-2 | It scrolls only when there's a conversation to follow. |
+
+Four more checks were failing behind O-2 where the app was right and the check was wrong:
+
+- **The map's fade** and **the library's search narrowing** were read a moment too early (a
+  0.25 s transition; the list on screen is marked before the narrowed list arrives). Both now
+  wait, then read.
+- **The fix-it queue** (two checks). The first expected "Answered right" after deciding that nothing answers
+  "Is there dental cover for my parents?". Offline, the assistant answers that question from the
+  parental-leave paragraph, so the queue said "Not right yet", which is true. The check now
+  covers both outcomes: a question the assistant declines passes, this one doesn't, and the score
+  reads 50% (1 of 2). The wrong answer itself is the weakness measured in section M (questions
+  nothing answers, 41 of 55 declined) and is not fixed here.
+
+### O3. Tests run and their results (16 November)
+
+| What | Result |
+|---|---|
+| Browser audit, strict rule, before any fix (Chromium, local) | **750 of 756**: the six failures the hole had hidden |
+| Browser audit after the fixes (Chromium, local) | **758 of 758**, 0 console or network problems (two checks added) |
+| Accessibility review (Chromium, local) | **26 of 26** |
+| Type-check and production build | Clean |
+| Backend tests | Not rerun locally: no backend file changed. CI runs them |
+| Firefox and WebKit audits | Not run locally; CI runs all three browsers. With the strict rule they may show failures of their own that Chromium doesn't have |
+
+### O4. Still unverified
+
+- Stop on the live demo: offline answers there come back too fast to press it. Reproduced and
+  fixed against a local server with the reply held back three seconds.
+- Whether Firefox and WebKit move the Tab starting point the way Chromium does (O-4).
+- Nothing moves focus when the app changes page without a reload. Straight after signing in,
+  the first Tab carries on from where the pressed button was.

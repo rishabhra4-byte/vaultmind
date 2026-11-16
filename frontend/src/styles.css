@@ -276,7 +276,8 @@ mark {
   gap: 6px;
 }
 
-input:not([type="checkbox"]):not([type="file"]),
+/* :where keeps this rule as specific as it was, so rules written to override it still do. */
+input:not([type="checkbox"]):not([type="file"]):where(:not([type="radio"])),
 select,
 textarea {
   width: 100%;
@@ -288,7 +289,7 @@ textarea {
     border-color 0.15s,
     box-shadow 0.15s;
 }
-input:not([type="checkbox"]):focus,
+input:not([type="checkbox"]):focus:where(:not([type="radio"])),
 select:focus,
 textarea:focus {
   outline: none;
@@ -4176,6 +4177,9 @@ button.dropzone {
   border: 1.5px solid var(--line);
   cursor: pointer;
 }
+.kind-option input {
+  accent-color: var(--primary);
+}
 .kind-option.on {
   border-color: var(--primary);
   background: color-mix(in srgb, var(--primary) 6%, var(--surface));
@@ -6764,6 +6768,9 @@ button.nav-twist:hover {
   cursor: default;
 }
 .move-row input {
+  flex: none;
+  width: 17px;
+  height: 17px;
   accent-color: var(--primary);
 }
 

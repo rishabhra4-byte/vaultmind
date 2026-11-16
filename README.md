@@ -150,7 +150,7 @@ Search follows the same rule. Content matching only ever runs over documents the
 
 **Backend:** Python 3.12, FastAPI, SQLAlchemy 2, Alembic, PostgreSQL (SQLite for local runs), JWT auth with bcrypt, Anthropic API, pypdf
 **Frontend:** React 18, TypeScript, Vite, React Router, with no UI framework, self-hosted fonts
-**Quality:** pytest (348 tests, on SQLite and PostgreSQL, plus 4 opt-in live Claude checks; Google, Microsoft, Slack, SMTP, ClamAV and sign-in are tested against local fakes of their APIs), an answer-quality benchmark with a CI gate, a 447-check browser audit run in Chromium, Firefox and WebKit (Playwright + axe), an accessibility review, performance checks, Ruff, pip-audit and npm audit, and a CI job that tests the Docker image itself
+**Quality:** pytest (348 tests, on SQLite and PostgreSQL, plus 4 opt-in live Claude checks; Google, Microsoft, Slack, SMTP, ClamAV and sign-in are tested against local fakes of their APIs), an answer-quality benchmark with a CI gate, a 758-check browser audit run in Chromium, Firefox and WebKit (Playwright + axe), an accessibility review, performance checks, Ruff, pip-audit and npm audit, and a CI job that tests the Docker image itself
 
 ## Run it
 
