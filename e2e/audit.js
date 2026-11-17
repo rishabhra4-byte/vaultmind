@@ -22,8 +22,10 @@ const notes = []; // things worth knowing that don't fail the audit (e.g. a retr
 const ok = (name, cond, info = '') => results.push({ name, pass: !!cond, info });
 async function check(name, fn) {
   try {
+    // A check passes by returning nothing or true. false fails it, and so does a string, which
+    // says what was found instead: `return right || \`saw ${it}\``.
     const r = await fn();
-    ok(name, r !== false, typeof r === 'string' ? r : '');
+    ok(name, r !== false && typeof r !== 'string', typeof r === 'string' ? r : '');
   } catch (e) {
     ok(name, false, e.message.split('\n')[0].slice(0, 200));
   }
@@ -245,7 +247,10 @@ async function signOut(page) {
     });
     await check('map: "Just this route" fades the rest of the system', async () => {
       await p.check('.sm-switch input >> nth=0');
-      const faded = await p.$eval('.sm-node.off', (n) => Number(getComputedStyle(n).opacity));
+      const opacity = () => p.$eval('.sm-node.off', (n) => Number(getComputedStyle(n).opacity));
+      // The fade is a short transition: give it time to finish, then read where it ended.
+      await p.waitForFunction(() => Number(getComputedStyle(document.querySelector('.sm-node.off')).opacity) < 0.3, null, { timeout: 3000 }).catch(() => {});
+      const faded = await opacity();
       await p.uncheck('.sm-switch input >> nth=0');
       return faded < 0.3 || `opacity ${faded}`;
     });
@@ -599,8 +604,11 @@ async function signOut(page) {
     await check('library: search narrows results and highlights matches', async () => {
       await p.fill('.search-box input', 'incident');
       await p.waitForSelector('.doc-title mark');
+      // The list on screen is marked at once; the narrowed list arrives a moment later.
+      await p.waitForFunction((t) => document.querySelectorAll('.doc-row').length < t, total, { timeout: 5000 }).catch(() => {});
       const n = (await p.$$('.doc-row')).length;
-      return (n < total && n > 0) || `${n} of ${total}`;
+      const marked = (await p.$$('.doc-title mark')).length;
+      return (n < total && n > 0 && marked > 0) || `${n} of ${total}, ${marked} marked`;
     });
     await check('library: search term is kept in the URL', async () => p.url().includes('q=incident'));
     await check('library: no-results state offers to clear filters, and it works', async () => {
@@ -1132,6 +1140,10 @@ async function signOut(page) {
     const p = await newPage(browser, 'keyboard');
     await signIn(p, 'Priya Sharma');
     await check('keyboard: first Tab reveals "Skip to content", Enter jumps to main', async () => {
+      // On a page as it loads. (Straight after signing in, the browser carries on from where the
+      // button that was pressed used to be.)
+      await p.goto(BASE + '/');
+      await p.waitForSelector('.composer textarea');
       await p.keyboard.press('Tab');
       const name = await p.evaluate(() => document.activeElement?.textContent);
       await p.keyboard.press('Enter');
@@ -1175,6 +1187,16 @@ async function signOut(page) {
       await p.click('.feedback-form button:has-text("Send")');
       await toast(p, 'Thanks');
     });
+    await check('fix-it: an answer that said it didn\'t know can be marked too', async () => {
+      await ask(p, 'Does the company pay for a gym membership?');
+      const declined = (await p.textContent('.msg-assistant >> nth=-1')).includes("couldn't find enough evidence");
+      await p.click('.msg-tools >> nth=-1 >> button[aria-label="Not helpful"]');
+      await p.waitForSelector('.feedback-form');
+      await p.click('.feedback-form label:has-text("Something was missing")');
+      await p.click('.feedback-form button:has-text("Send")');
+      await toast(p, 'Thanks');
+      return declined || 'the assistant answered the gym question';
+    });
     await p.context().close();
 
     p = await newPage(browser, 'dev-quality');
@@ -1185,19 +1207,30 @@ async function signOut(page) {
       const card = await p.textContent('.review-item:has-text("dental cover for my parents")');
       return (card.includes('Marked unhelpful') && card.includes("should have said") && !/Aarav|Mehta/.test(card)) || card;
     });
-    await check('fix-it: "Nothing answers this" is saved and checked as the person who asked', async () => {
-      const item = p.locator('.review-item', { hasText: 'dental cover for my parents' });
+    // Decide that nothing answers a question; VaultMind asks it again as the person who asked.
+    const nothingAnswers = async (question) => {
+      const item = p.locator('.review-item', { hasText: question });
       await item.locator('button:has-text("Say what answers it")').click();
       await item.locator('label:has-text("Nothing answers this")').click();
       await item.locator('button:has-text("Save and check")').click();
-      await p.waitForSelector('.review-case:has-text("dental cover for my parents") .status-pill');
-      const pill = await p.textContent('.review-case:has-text("dental cover for my parents") .status-pill');
-      const waiting = await p.$('.review-item:has-text("dental cover for my parents")');
-      return (pill === 'Answered right' && waiting === null) || pill;
+      await p.waitForSelector(`.review-case:has-text("${question}") .status-pill`);
+      const pill = await p.textContent(`.review-case:has-text("${question}") .status-pill`);
+      const waiting = await p.$(`.review-item:has-text("${question}")`);
+      return { pill, waiting: waiting !== null };
+    };
+    await check('fix-it: "Nothing answers this" passes when the assistant says it doesn\'t know', async () => {
+      const r = await nothingAnswers('gym membership');
+      return (r.pill === 'Answered right' && !r.waiting) || JSON.stringify(r);
+    });
+    await check('fix-it: "Nothing answers this" is not passed while the assistant still answers', async () => {
+      // Offline, "dental cover for my parents" is answered from the parental-leave paragraph.
+      // The check is run as the person who asked, so the queue has to say that it's still wrong.
+      const r = await nothingAnswers('dental cover for my parents');
+      return (r.pill === 'Not right yet' && !r.waiting) || JSON.stringify(r);
     });
     await check('fix-it: the score counts decided questions answered right', async () => {
       const t = await p.textContent('.review-score');
-      return /100%/.test(t) || t;
+      return (/50%/.test(t) && /1 of 2/.test(t)) || t;
     });
     await check('verified: the list shows each answer, who verified it, and that it is current', async () => {
       await p.goto(BASE + '/admin/verified');
@@ -1314,6 +1347,10 @@ async function signOut(page) {
     await check('explorer: Move to puts a document in a folder, and it is still in All documents', async () => {
       await p.check('.doc-row:has-text("Backend Onboarding Guide") .row-check input');
       await p.click('.command-bar .tool:has-text("Move to")');
+      await p.waitForSelector('dialog .move-row');
+      // Each choice is a small radio beside its folder's name, not one stretched across the row.
+      const widest = await p.evaluate(() => Math.max(...[...document.querySelectorAll('dialog .move-row input')].map((i) => i.getBoundingClientRect().width)));
+      if (widest > 24) return `the radios in the Move dialog are ${Math.round(widest)}px wide`;
       await p.click('dialog .move-row:has-text("Audit shelf")');
       await p.click('dialog button:has-text("Move here")');
       await toast(p, 'Moved 1 item to Audit shelf');
@@ -1601,6 +1638,8 @@ async function signOut(page) {
       await p.goto(BASE + '/');
       await p.click('button[aria-label="Your account and sessions"]');
       await p.waitForSelector('dialog[open]');
+      // The dialog opens before its list of sessions has arrived.
+      await p.waitForSelector('dialog[open] :text("VS Code extension")', { timeout: 5000 }).catch(() => {});
       const t = await p.textContent('dialog[open]');
       await p.keyboard.press('Escape');
       return t.includes('VS Code extension') || t;
