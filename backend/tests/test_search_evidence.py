@@ -102,6 +102,38 @@ def test_a_sentence_with_no_frequency_or_number_is_not_an_answer_to_how_often_or
     assert reply["meta"]["evidence"]["enough"] is False
 
 
+def test_how_long_wants_a_length_of_time_not_whatever_number_is_there():
+    # "every intern owns one scoped project" has a number in it, but says nothing about how long.
+    assert retrieval.answers_kind("How long is the internship?", "Every intern owns one scoped project.") is False
+    assert retrieval.answers_kind("How long is an on-call shift?", "A shift is one week.") is True
+    assert retrieval.answers_kind("How late can I stay in the office?", "The doors close at 9pm.") is True
+    # "How fast is it growing" is answered by a rate.
+    assert retrieval.answers_kind("How fast are cloud costs growing?", "They grew 18% quarter on quarter.") is True
+
+
+def test_how_many_and_how_much_want_the_kind_of_amount_asked_for():
+    # A number that is a label, or a length of time, does not answer "how much" or "how many".
+    assert retrieval.answers_kind("How much is the parking fee?", "Parking is on levels B1 and B2.") is False
+    assert retrieval.answers_kind("How much is the parking fee?", "Parking costs INR 2,000 a month.") is True
+    headcount = "How many people are on the security team?"
+    assert retrieval.answers_kind(headcount, "The team responds within one business hour.") is False
+    assert retrieval.answers_kind(headcount, "The security team is four engineers.") is True
+    # ...but "how much leave" is a length of time, and a count of days answers "how many days".
+    assert retrieval.answers_kind("How much paternity leave can I take?", "Paternity leave is 6 weeks.") is True
+    assert retrieval.answers_kind("How many leave days carry over?", "Up to 10 unused earned leave days carry over.") is True
+    # A count the amount reader can't put a unit on ("one approving review") still answers.
+    assert retrieval.answers_kind("How many approvals does a change need?", "Every change needs one approving review.") is True
+
+
+def test_who_is_not_answered_by_repeating_the_role_it_asked_about():
+    asked = "Who is the incident commander this week?"
+    assert retrieval.answers_kind(asked, "Assign an incident commander for SEV1 and SEV2.") is False
+    assert retrieval.answers_kind(asked, "The incident commander this week is Priya Sharma.") is True
+    assert retrieval.answers_kind("Who approves expense claims?", "Your manager approves claims.") is True
+    # A sentence that answers in words this doesn't know is left alone.
+    assert retrieval.answers_kind("Who is our ideal customer?", "Our ideal customers are mid-size online retailers.") is True
+
+
 # ===================================================================== words
 
 

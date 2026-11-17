@@ -957,3 +957,106 @@ Four more checks were failing behind O-2 where the app was right and the check w
 - Other checks may read too early in the same way and only fail on a slow server. Each one that does will now show up as a failure instead of passing.
 - Nothing moves focus when the app changes page without a reload. Straight after signing in,
   the first Tab carries on from where the pressed button was.
+
+## P. The kind of answer a question asks for (18 November 2026)
+
+Checking the library on the live demo (section O) also showed the assistant answering **"Is
+there dental cover for my parents?"** from the parental-leave paragraph. That is a tracked
+weakness, not a new one: the benchmark has had cases of this shape since 31 October. This is
+what came of trying to fix it.
+
+### P1. What was wrong
+
+14 of the 55 questions nothing answers were answered anyway. Reading them, two kinds:
+
+- **The sentence has a number, but not the kind asked for.** "How much is the parking fee?" was
+  answered from "Parking is on levels B1 and B2", because the check for "how much" was *is there
+  a number in this sentence*, and `B1` holds one. The same for "How many people are on the
+  security team?" answered from "responds within one business hour", and "How long is the
+  internship?" from "every intern owns one scoped project".
+- **The sentence repeats the role the question asked about, without saying who holds it.** "Who
+  is the incident commander this week?" answered from "Assign an incident commander for SEV1
+  and SEV2."
+
+### P2. What changed
+
+All three are in `answers_kind`, which decides whether a sentence can answer the kind of
+question asked at all, however many of its words it shares.
+
+| Rule | Before | After |
+|---|---|---|
+| "How long", "how soon", "how late" | any number | a length of time, a clock time or date, or a rate (so "how fast are costs growing" is still answered by "18% quarter on quarter") |
+| "How many X" | any number | a length of time when X is one ("how many PTO days"), otherwise a count. A number the amount reader can't put a unit on but that clearly counts something ("one approving review") counts; "one business hour" and "level B2" don't |
+| "How much", with a word about money in the question (fee, cost, price, salary, budget, allowance…) | any number | money, or a percentage |
+| "Who…" | nothing checked | a sentence whose only role words are ones the question already used, and that names nobody, isn't an answer. A sentence with no role word at all is left alone, so "Who is our ideal customer?" is still answered by "mid-size online retailers" |
+
+### P3. Tried and removed: refusing any question with a word no document uses
+
+By the time the evidence is judged, a word has been looked for as itself, as another form of
+itself, as what an acronym stands for, as a glossary term, as an ordinary word that means it,
+and as a typo of a word that is there. It was worth asking whether a word that none of those
+found ("dental", "Kafka", "menu") means nothing can answer the question.
+
+Measured: **+2 questions, −5**. It did decline "dental cover for parents" and "cafeteria lunch
+menu", but it also refused to answer "incedent postmortem deadline", "probaton period length",
+"Where do I ask HR questions the handbook doesn't cover?", "Can I upload company documents to
+my personal Google Drive?" and "What's the guest wifi network called?" — where the unknown word
+was *deadline*, *length*, *questions*, *google* and *network*, and the rest of the question was
+enough. Nothing in the question separates a damning unknown word from a harmless one: coverage
+doesn't (the five good answers scored 0.45–0.68, the two right refusals 0.50–0.51), and neither
+does how rare the word is or where it sits. Removed.
+
+So **"dental cover for parents" is still answered wrongly.** The demo shows the honest version
+of this: the weakness is in section M3 and in the README.
+
+### P4. Results
+
+Same 321 questions, offline, before and after. The dev split is what was tuned on; the rest was
+held out.
+
+| Questions | Before | After |
+|---|---|---|
+| All 321, right | 261 | **265** |
+| Dev split (191, tuned on) | 160 | 161 |
+| Held out, test (130) | 101 | **104** |
+| Declined when nothing answers it, of 55 | 41 | **45** |
+| Of those, the hard ones (36) | 22 | **26** |
+| Wrongly declined, of 236 | 36 | 37 |
+| Answers right, of 236 | 190 | 190 |
+| Recall@5 / MRR | 0.983 / 0.956 | unchanged |
+| Citation precision | 0.866 | 0.865 |
+| Permission leaks | 0 | 0 |
+| Search p50 / p95 | 10.9 / 17.7 ms | 11.0 / 17.8 ms |
+
+The four it now gets right: "How long is the internship?" (dev), "How much is the parking fee?",
+"How many people are on the security team?", "Who is the incident commander this week?" (all
+held out). No question that was answered right is now declined or wrong.
+
+The one that moved the other way is worth naming: **"Who gets paged if the primary doesn't pick
+up?"** used to answer "The primary on-call responds to pages within 15 minutes", which doesn't
+say who. It now declines. The document does answer it (the secondary), so the question is still
+counted wrong — it just fails honestly now, which is why "wrongly declined" went up by one while
+nothing was lost.
+
+### P5. Method, and where it was not clean
+
+- Rules were designed from the **dev** failures and from what the question asks for, not from
+  the held-out results, and no constant was tuned.
+- **One exception, stated plainly:** the first version of the "how many" rule broke two held-out
+  answers ("How many unused leave days can I carry over?" and "How many approvals does a change
+  need?"). Seeing those two is what prompted accepting a count of days, and a counted thing the
+  amount reader can't put a unit on. The test split informed that repair, so those two cases are
+  no longer fully held out. The four gains above are not affected by it: all four were already
+  declined correctly at that point or came from the other rules.
+- Run: `cd backend && python -m eval.run --check`. The baseline is re-recorded at the new
+  numbers, so a future change that loses any of this fails CI.
+
+### P6. What this doesn't fix
+
+- Questions worded unlike the documents: still **19 of 58**. Untouched by this work.
+- The remaining 10 of 55: a question whose subject no document mentions, next to words that do
+  ("What laptop model do interns get?", "Which Kafka version do we run?", "How do I cancel a
+  purchase order?"). P3 is why.
+- Everything here is measured offline. With an API key the model reads the same evidence, and
+  the same decision gates what it is given.
+

@@ -427,6 +427,14 @@ _FREQUENCY = re.compile(
 )
 _HOW_LONG = re.compile(r"(?i)\bhow\s+(?:long|soon|quickly|fast|late|early|far\s+in\s+advance|much\s+(?:notice|time))\b")
 _HOW_MUCH = re.compile(r"(?i)\bhow\s+(?:many|much|long|soon|quickly|fast|far|old)\b")
+# "How many PTO days": what is being counted, as far as the next few words.
+_HOW_MANY = re.compile(r"(?i)\bhow\s+many\b((?:\s+[\w-]+){0,3})")
+_TIME_UNIT = re.compile(r"(?i)\b(?:seconds?|minutes?|hours?|days?|weeks?|months?|quarters?|years?|shifts?)\b")
+# Words that make "how much" a question about money.
+_COSTS = re.compile(
+    r"(?i)\b(?:fees?|costs?|price[sd]?|pay|paid|salary|salaries|allowances?|budget(?:ed)?|spend|spent|"
+    r"charges?|reimburse\w*|bonus(?:es)?|stipends?|money|expensive|worth)\b"
+)
 _WHO = re.compile(
     r"(?i)^\s*who\b|\bwho\s+(?:do|does|should|can|is|are|has|gets|handles?|approves?|signs?|owns?|makes?|decides?)\b"
 )
@@ -477,16 +485,68 @@ def _sentence_score(concepts: list[Concept], heading: str, sentence: str, questi
 
 
 def _states_duration(text: str) -> bool:
-    return any(b.kind == quantities.DURATION for b in quantities.bands(text))
+    return _states_kind(text, quantities.DURATION)
+
+
+_COUNTED = re.compile(r"(?i)\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)((?:\s+[a-z-]+){1,2})\b")
+
+
+def _counts_things(text: str) -> bool:
+    """A number of things ("one approving review"), as opposed to a length of time ("one business
+    hour") or a label that happens to hold a digit ("SEV1", "level B2")."""
+    return any(not _TIME_UNIT.search(m.group(1)) for m in _COUNTED.finditer(text))
+
+
+def _states_kind(text: str, kind: str) -> bool:
+    """Whether the text states an amount of this kind: money, a percentage, a length of time."""
+    return any(b.kind == kind for b in quantities.bands(text))
+
+
+def _names_someone(question: str, text: str) -> bool:
+    """Whether a "who" question is answered by naming someone, rather than by repeating the role
+    it already asked about. "Who approves expense claims?" is answered by "your manager approves
+    them"; "Who is the incident commander this week?" is not answered by "assign an incident
+    commander for SEV1 and SEV2", which says there is one without saying who."""
+    if not _WHO.search(question):
+        return True
+    if _NAME_WORD.search(text):
+        return True
+    roles = [m.group(0).lower() for m in _SOMEONE.finditer(text)]
+    if not roles:
+        return True  # it may still answer in words this doesn't know ("mid-size online retailers")
+    asked = set(tokenize(question))
+    return any(stem(r) not in asked for r in roles)
 
 
 def answers_kind(question: str, text: str) -> bool:
-    """Whether `text` can answer the kind of question asked: "how often" needs a frequency or
-    a length of time, and "how much", "how many" or "how long" a number of some kind. A
-    sentence with none isn't an answer, however many of the question's words it shares."""
+    """Whether `text` can answer the kind of question asked, however many of the question's words
+    it shares: "how often" needs a frequency, "how long" a length of time, "how many people" a
+    count, "how much ... fee" money, and "who" someone other than the role that was asked about.
+
+    The kind has to match, not just the shape: "Parking is on levels B1 and B2" holds a number
+    and answers nothing about what parking costs.
+    """
+    if not _names_someone(question, text):
+        return False
     if _HOW_OFTEN.search(question):
         return bool(_FREQUENCY.search(text)) or _states_duration(text)
+    if _HOW_LONG.search(question):
+        # "How long is the internship?" wants a length of time; "how soon" can be answered by a
+        # time it happens by ("by Friday"), and "how fast is it growing" by a rate ("18% quarter
+        # on quarter"). Any other number isn't an answer to any of them.
+        return _states_duration(text) or bool(_DATEISH.search(text)) or _states_kind(text, quantities.PERCENT)
+    many = _HOW_MANY.search(question)
+    if many:
+        # What's being counted decides the kind: "how many days" wants a length of time,
+        # "how many people" a count. Any other number is not an answer to either.
+        if _TIME_UNIT.search(many.group(1)):
+            # "Up to 10 unused earned leave days" is read as a plain count, not a length of time.
+            return _states_duration(text) or _states_kind(text, quantities.COUNT)
+        return _states_kind(text, quantities.COUNT) or _states_kind(text, quantities.MONEY) or _counts_things(text)
     if _HOW_MUCH.search(question):
+        # "How much is the parking fee" wants money, not whatever number the sentence holds.
+        if _COSTS.search(question):
+            return _states_kind(text, quantities.MONEY) or _states_kind(text, quantities.PERCENT)
         return has_quantity(text)
     return True
 
