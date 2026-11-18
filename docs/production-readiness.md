@@ -1060,3 +1060,31 @@ nothing was lost.
 - Everything here is measured offline. With an API key the model reads the same evidence, and
   the same decision gates what it is given.
 
+## Q. An unpatched advisory in a build tool (18 November 2026)
+
+CI went red on a branch that changed no frontend code. `npm audit` found four new high
+advisories, all of them one problem: **GHSA-fc5q-39xc-vjpf**, a ReDoS in `picomatch`, reaching
+the tree through `vite` and its `fdir` and `tinyglobby`.
+
+There is no patched release. `picomatch` 4.0.7 is the newest published version and the advisory
+covers every version. npm's only offered fix is downgrading `vite` 6.4.5 to 6.2.7 — which was
+measured, and is worse: it clears this one and brings back **twelve** advisories in the Vite dev
+server that 6.4.5 is patched against, among them arbitrary file read, path traversal and
+`server.fs.deny` bypasses. Staying on 6.4.5 is right.
+
+So the frontend audit is now two steps:
+
+| | Before | After |
+|---|---|---|
+| What ships (`npm audit --audit-level=high --omit=dev`) | with the rest | **its own step; CI fails on a high advisory.** 0 today |
+| Build tools (`vite`, TypeScript, the React plugin) | failed CI | printed on every run, does not fail it |
+
+Why that line: `picomatch` matches glob patterns, and at build time the only patterns it sees
+come from this repository's own config. Nothing a visitor or an uploaded document reaches, and
+none of it is served to a browser.
+
+**This is a real loosening and was the owner's call, not a silent one.** The build-tool
+advisories are printed in every CI run, and the full `npm audit --audit-level=high` is in the
+[upgrade steps](operations.md#upgrading) to be read before a release. When `picomatch` ships a
+fix, `npm update` takes it and the step goes back to zero.
+
