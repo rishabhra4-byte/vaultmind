@@ -955,6 +955,11 @@ Four more checks were failing behind O-2 where the app was right and the check w
 - Stop on the live demo: offline answers there come back too fast to press it. Reproduced and
   fixed against a local server with the reply held back three seconds.
 - Other checks may read too early in the same way and only fail on a slow server. Each one that does will now show up as a failure instead of passing.
+- **Found later, in CI:** the page-load navigation added to the keyboard check above left
+  `/api/onboarding` in flight, which Firefox reports as a cancelled request (Chromium and WebKit
+  don't). All 758 checks passed; the job failed on the request. The check now lets the page
+  sign-in landed on finish before it navigates. Only Chromium runs locally, so CI is the only
+  place this is verified.
 - Nothing moves focus when the app changes page without a reload. Straight after signing in,
   the first Tab carries on from where the pressed button was.
 
