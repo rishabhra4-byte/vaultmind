@@ -72,7 +72,12 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Known vulnerabilities in dependencies
+      - name: Known vulnerabilities in what ships
+        run: npm audit --audit-level=high --omit=dev
+      # Build tools don't run in anyone's browser, and an advisory in one can sit unpatched
+      # upstream for days. Printed on every run and read before a release: readiness doc, Q.
+      - name: Known vulnerabilities in the build tools (reported, not blocking)
+        continue-on-error: true
         run: npm audit --audit-level=high
       - name: Type check and build
         run: npm run build

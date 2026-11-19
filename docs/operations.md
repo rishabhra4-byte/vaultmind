@@ -300,6 +300,14 @@ git pull && docker compose up -d --build                               # 2. migr
 Check **Admin → Overview** and `/api/ready` afterwards. To go back, restore the backup with the
 previous version (backups are tied to the database version that made them).
 
+Before releasing, read the dependency advisories in full, including the build tools that CI
+reports without failing on (see [readiness, section Q](production-readiness.md#q-an-unpatched-advisory-in-a-build-tool-18-november-2026)):
+
+```bash
+pip-audit -r backend/requirements.txt
+cd frontend && npm audit --audit-level=high   # every advisory, build tools included
+```
+
 ---
 
 ## When an alert fires

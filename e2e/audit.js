@@ -1141,7 +1141,9 @@ async function signOut(page) {
     await signIn(p, 'Priya Sharma');
     await check('keyboard: first Tab reveals "Skip to content", Enter jumps to main', async () => {
       // On a page as it loads. (Straight after signing in, the browser carries on from where the
-      // button that was pressed used to be.)
+      // button that was pressed used to be.) Let the page sign-in landed on finish its own
+      // requests first: Firefox reports one still in flight when we navigate as a failed request.
+      await p.waitForLoadState('networkidle');
       await p.goto(BASE + '/');
       await p.waitForSelector('.composer textarea');
       await p.keyboard.press('Tab');
