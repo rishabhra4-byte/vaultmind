@@ -1093,3 +1093,86 @@ advisories are printed in every CI run, and the full `npm audit --audit-level=hi
 [upgrade steps](operations.md#upgrading) to be read before a release. When `picomatch` ships a
 fix, `npm update` takes it and the step goes back to zero.
 
+## R. Why questions worded unlike the documents fail (19 November 2026)
+
+19 of 58 right is the weakness named in the README and in section M. This is a measurement of
+*where* it fails, because the answer turned out not to be where it looked.
+
+### R1. The documents are found
+
+For the 58 paraphrase questions, **recall@5 is 0.940**: the document holding the answer is in
+the top five almost every time. Ranking documents is not the problem.
+
+Of the 39 that are wrong, **33 are declined** and 6 are answered wrongly. So the suspicion was
+that the bar to answer (`ENOUGH_COVERAGE`, how much of the question the chosen sentence has to
+cover) is simply too high for a question that uses other words.
+
+### R2. The bar is not what's holding them back
+
+The whole benchmark, once per value of that bar:
+
+| Bar | Paraphrase, of 58 | Declined when nothing answers, of 55 | All 321 |
+|---|---|---|---|
+| 0.45 (today) | 19 | 45 | 265 |
+| 0.40 | 21 | 43 | 265 |
+| 0.35 | 22 | 38 | 261 |
+| 0.30 | 25 | 35 | 261 |
+| 0.25 | 26 | 33 | 260 |
+| 0.15 | 26 | 32 | 259 |
+| 0.00 — answer whenever anything is found | **26** | 28 | 255 |
+
+Two things fall out of the last row. Lowering the bar trades one kind of question for the other
+at about one for one, so there is nothing free in it; 0.45 is where the total is highest. And
+**with no bar at all, paraphrase still only reaches 26 of 58** — so of the 39 that fail today,
+about 7 are held back by the bar and the other **32 are picking the wrong sentence in the first
+place**, and would be answered wrongly rather than declined.
+
+Reranking makes no difference either: `W_EVIDENCE` at 0.5, 0.8 and 1.2 and `RERANK_DOCS` at 6
+and 10 all give exactly 19 of 58. That fits — the document is already found; what's wrong is
+which sentence inside it is chosen, and that is decided by shared words.
+
+### R3. Tried and removed: reading the thesaurus both ways
+
+The thesaurus stores each link one way round. `lunch` names `eat` among the words that mean it;
+`eat` names only `consume` and `ingest`. So "Where can I eat at midday?" never reaches the
+cafeteria sentence, though the link is right there, backwards.
+
+Reading it both ways (an index of which document words name a word, built once per index)
+needed a guard at once: common verbs are named by half the vocabulary, so "Can I take Holi
+off?" picked up *guide*, *welcome* and *channel* as stand-ins for *take*, and the question
+broke. With the reverse link dropped for any word named by more than a few document words:
+**+1 question, nothing lost** — "How do we guard against fake invoices when a vendor changes
+account information?".
+
+Removed. A reverse index over the whole vocabulary is memory that grows with the library, and
+one question is the same bar that removed the GloVe neighbours in section M. The finding is
+kept here because the asymmetry is real and worth knowing about.
+
+### R4. What would fix it, and why it isn't measured
+
+These questions need meaning, not words: *eat* ↔ *lunch*, *moonlighting* ↔ *outside work*,
+*permanent employee* ↔ *confirmed after probation*, *woken up at night* ↔ *paged*. A general
+English thesaurus doesn't hold the last three at all — they are this company's own associations.
+
+Search by meaning is already built (`app/embeddings.py`, and `python -m eval.run --embeddings`),
+and two things are worth knowing about it:
+
+1. **It is still unmeasured.** It needs an embeddings service, and this sandbox cannot reach
+   one or download a model, so no number here would be real.
+2. **As built, it would not fix this on its own.** By design it adds a "means the same" score to
+   reranking and "never decides on its own that there's enough evidence to answer: that stays
+   with the words". Since R2 shows ranking is not what's failing, switching it on would move
+   little until the decision to answer can also rest on meaning — which is a deliberate safety
+   line, and moving it should be measured against the 55 questions nothing answers.
+
+To measure it, with any OpenAI-style service (Ollama runs one locally):
+
+```bash
+export VAULTMIND_EMBEDDINGS_URL=http://localhost:11434/v1
+export VAULTMIND_EMBEDDINGS_MODEL=nomic-embed-text
+cd backend && python -m eval.run --embeddings --out meaning.json
+```
+
+Until that is run, the README's "search by meaning" stays described as optional and unmeasured,
+and 19 of 58 stays the honest number.
+
