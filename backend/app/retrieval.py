@@ -429,6 +429,11 @@ _HOW_LONG = re.compile(r"(?i)\bhow\s+(?:long|soon|quickly|fast|late|early|far\s+
 _HOW_MUCH = re.compile(r"(?i)\bhow\s+(?:many|much|long|soon|quickly|fast|far|old)\b")
 # "How many PTO days": what is being counted, as far as the next few words.
 _HOW_MANY = re.compile(r"(?i)\bhow\s+many\b((?:\s+[\w-]+){0,3})")
+# Answers to "how soon" that name no length of time: "log it the same day", "page them at once".
+_SOON = re.compile(
+    r"(?i)\b(?:same[- ]day|that day|end of (?:the )?day|close of business|overnight|immediately|"
+    r"instantly|straight away|right away|at once|as soon as|without delay|before (?:you )?leav\w+)\b"
+)
 _TIME_UNIT = re.compile(r"(?i)\b(?:seconds?|minutes?|hours?|days?|weeks?|months?|quarters?|years?|shifts?)\b")
 # Words that make "how much" a question about money.
 _COSTS = re.compile(
@@ -534,7 +539,12 @@ def answers_kind(question: str, text: str) -> bool:
         # "How long is the internship?" wants a length of time; "how soon" can be answered by a
         # time it happens by ("by Friday"), and "how fast is it growing" by a rate ("18% quarter
         # on quarter"). Any other number isn't an answer to any of them.
-        return _states_duration(text) or bool(_DATEISH.search(text)) or _states_kind(text, quantities.PERCENT)
+        return (
+            _states_duration(text)
+            or bool(_DATEISH.search(text))
+            or bool(_SOON.search(text))
+            or _states_kind(text, quantities.PERCENT)
+        )
     many = _HOW_MANY.search(question)
     if many:
         # What's being counted decides the kind: "how many days" wants a length of time,

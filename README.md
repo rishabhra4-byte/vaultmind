@@ -150,7 +150,7 @@ Search follows the same rule. Content matching only ever runs over documents the
 
 **Backend:** Python 3.12, FastAPI, SQLAlchemy 2, Alembic, PostgreSQL (SQLite for local runs), JWT auth with bcrypt, Anthropic API, pypdf
 **Frontend:** React 18, TypeScript, Vite, React Router, with no UI framework, self-hosted fonts
-**Quality:** pytest (351 tests, on SQLite and PostgreSQL, plus 4 opt-in live Claude checks; Google, Microsoft, Slack, SMTP, ClamAV and sign-in are tested against local fakes of their APIs), an answer-quality benchmark with a CI gate, a 758-check browser audit run in Chromium, Firefox and WebKit (Playwright + axe), an accessibility review, performance checks, Ruff, pip-audit and npm audit, and a CI job that tests the Docker image itself
+**Quality:** pytest (352 tests, on SQLite and PostgreSQL, plus 4 opt-in live Claude checks; Google, Microsoft, Slack, SMTP, ClamAV and sign-in are tested against local fakes of their APIs), an answer-quality benchmark with a CI gate, a 758-check browser audit run in Chromium, Firefox and WebKit (Playwright + axe), an accessibility review, performance checks, Ruff, pip-audit and npm audit, and a CI job that tests the Docker image itself
 
 ## Run it
 
@@ -232,7 +232,7 @@ The Docker image runs in production mode. On top of the Quickest steps:
 
 ```bash
 cd backend
-pytest                 # 351 tests: policy, scanner, search, API flows, leakage, security, migrations, AI errors and
+pytest                 # 352 tests: policy, scanner, search, API flows, leakage, security, migrations, AI errors and
                        # data policy, connectors, sync, sign-in, sessions, backups, malware scanning, metrics, Slack,
                        # the assistant's evidence, actions and filters, and admin tools
 python -m eval.run --check   # answer-quality benchmark; fails if anything got worse than eval/baseline.json
