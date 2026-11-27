@@ -1123,13 +1123,50 @@ The whole benchmark, once per value of that bar:
 
 Two things fall out of the last row. Lowering the bar trades one kind of question for the other
 at about one for one, so there is nothing free in it; 0.45 is where the total is highest. And
-**with no bar at all, paraphrase still only reaches 26 of 58** — so of the 39 that fail today,
-about 7 are held back by the bar and the other **32 are picking the wrong sentence in the first
-place**, and would be answered wrongly rather than declined.
+**with no bar at all, paraphrase still only reaches 26 of 58**, so the bar is holding back about
+7 of the 39 that fail today and something else is wrong with the other 32.
+
+> **Corrected on 26 November 2026.** This section first said those 32 were "picking the wrong
+> sentence in the first place, and would be answered wrongly rather than declined". That was not
+> measured, and it is wrong. With the bar at 0.00 the 58 paraphrase questions come out 26 right,
+> **13 answered wrongly and 19 still declined** — by the other conditions, not the bar. R2a is
+> what checking them one by one actually shows.
+
+### R2a. Where each one stops
+
+Running all 58 and recording, for each, where the document holding the answer ranks and which
+condition stops it:
+
+- **The right document is ranked first for 50 of the 58**, failures included. Document ranking
+  is not the problem, which matches the recall above.
+- For the ones that fail, the top document's best sentence covers **0.08 to 0.45** of the
+  question. For the ones that succeed it covers **0.47 to 1.00**. There is almost no overlap:
+  the bar at 0.45 sits in the gap, which is why moving it only trades one group for the other.
+- Where min-match ("matched 1 of 3") also fires, coverage is already below the bar, so it is
+  never the binding constraint.
+- Two were stopped by the kind check alone. One was a real gap, now fixed: "How soon do I have
+  to enter a client meeting into the CRM?" was declined over "Log every customer interaction in
+  the CRM the same day" — the right sentence — because "the same day" names no length of time.
+  The other was right to stop: the question was "How late can I stay in the office?" and the
+  sentence it had was the office's street address.
+
+### R2b. Tried and rejected: how far the top document stands clear
+
+If the right document is ranked first anyway, perhaps answering could lean on *how far* it
+stands clear of the rest. Measured, as (top score − second score) / top score:
+
+| | Questions | Median margin | Quartiles | Median top score |
+|---|---|---|---|---|
+| Paraphrased, declined now | 32 | 0.29 | 0.13 / 0.56 | 0.6 |
+| Nothing answers them, declined right | 44 | 0.26 | 0.10 / 0.61 | 0.6 |
+
+The two are the same distribution. A document standing clear of the rest says nothing about
+whether the library can answer the question, so there is no rule to build from it.
 
 Reranking makes no difference either: `W_EVIDENCE` at 0.5, 0.8 and 1.2 and `RERANK_DOCS` at 6
-and 10 all give exactly 19 of 58. That fits — the document is already found; what's wrong is
-which sentence inside it is chosen, and that is decided by shared words.
+and 10 all give exactly 19 of 58. That fits with R2a — the document is already found and ranked
+first; what is missing is any way to tell that its best sentence answers a question put in other
+words.
 
 ### R3. Tried and removed: reading the thesaurus both ways
 

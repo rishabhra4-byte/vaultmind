@@ -111,6 +111,13 @@ def test_how_long_wants_a_length_of_time_not_whatever_number_is_there():
     assert retrieval.answers_kind("How fast are cloud costs growing?", "They grew 18% quarter on quarter.") is True
 
 
+def test_how_soon_is_answered_by_a_time_that_names_no_length():
+    asked = "How soon do I have to enter a client meeting into the CRM?"
+    assert retrieval.answers_kind(asked, "Log every customer interaction in the CRM the same day.") is True
+    assert retrieval.answers_kind(asked, "Page the on-call engineer immediately.") is True
+    assert retrieval.answers_kind(asked, "Log every customer interaction in the CRM.") is False
+
+
 def test_how_many_and_how_much_want_the_kind_of_amount_asked_for():
     # A number that is a label, or a length of time, does not answer "how much" or "how many".
     assert retrieval.answers_kind("How much is the parking fee?", "Parking is on levels B1 and B2.") is False
