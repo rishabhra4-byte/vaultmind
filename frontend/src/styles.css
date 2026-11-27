@@ -3296,9 +3296,16 @@ a.btn.primary {
 }
 .msg-tools {
   align-items: center;
+  flex-wrap: wrap;
+  row-gap: 6px;
 }
 .msg-tools .answer-label {
   margin-right: auto;
+}
+/* "Verified by … for …, date" is too long to share a row with the buttons without being
+   squeezed into a column; it takes a row of its own above them. */
+.msg-tools .answer-label.verified {
+  flex: 1 0 100%;
 }
 .composer .btn.stop {
   width: 42px;
@@ -6854,9 +6861,11 @@ button.nav-twist:hover {
     width: 24px;
     height: 24px;
   }
-  .command-bar {
-    flex-wrap: nowrap;
-    overflow-x: auto;
+  /* Two rows rather than one that scrolls sideways (a scrolled-off tool, Preview at 390px, gave
+     no sign it was there): what to do with the selection, then how to see the list. */
+  .command-bar .tool-gap {
+    flex-basis: 100%;
+    height: 0;
   }
   /* Icons alone; the words stay for screen readers. */
   .command-bar .tool > span {

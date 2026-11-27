@@ -1180,7 +1180,28 @@ async function signOut(page) {
       }));
       return (r.label.includes('Verified by Neha Kapoor for Human Resources') && r.marked && /#p\d+$/.test(r.cite)) || JSON.stringify(r);
     });
+    await check('verified: the "Verified by" line has a row of its own, not squeezed beside the buttons', async () => {
+      const r = await p.evaluate(() => {
+        const label = document.querySelector('.msg-tools .answer-label.verified').getBoundingClientRect();
+        const row = document.querySelector('.msg-tools').getBoundingClientRect();
+        const button = document.querySelector('.msg-tools .icon-btn').getBoundingClientRect();
+        return { share: label.width / row.width, above: label.bottom <= button.top + 1 };
+      });
+      return (r.share > 0.9 && r.above) || JSON.stringify(r);
+    });
     await check('verified: people who aren\'t admins see no Verify button', async () => (await p.$('.verify-btn')) === null);
+    await check('typing out: no half-written bold or citation shows while an answer is typed', async () => {
+      await p.fill('.composer textarea', 'How many days of earned leave do I get?');
+      const before = (await p.$$('.msg-tools')).length;
+      await p.click('.composer button[aria-label="Send"]');
+      const seen = [];
+      for (let i = 0; i < 200 && (await p.$$('.msg-tools')).length <= before; i++) {
+        const t = await p.evaluate(() => [...document.querySelectorAll('.msg-assistant .rich-text')].pop()?.textContent ?? '');
+        if (/\*\*|\[D\d*/.test(t)) seen.push(t.slice(-40));
+        await p.waitForTimeout(10);
+      }
+      return seen.length === 0 || `raw markup while typing: ${JSON.stringify(seen.slice(0, 3))}`;
+    });
     await check('fix-it: an unhelpful answer can be marked with a reason', async () => {
       await ask(p, 'Is there dental cover for my parents?');
       await p.click('.msg-tools >> nth=-1 >> button[aria-label="Not helpful"]');
@@ -1506,6 +1527,23 @@ async function signOut(page) {
       const places = await p.isVisible('.nav-go:has-text("Recycle bin")');
       await p.setViewportSize({ width: 1280, height: 800 });
       return (overflow <= 0 && !tree && places) || `overflow ${overflow}, tree ${tree}, places ${places}`;
+    });
+    await check('explorer: on a phone every tool in the command bar is on screen, none scrolled off', async () => {
+      const hidden = [];
+      for (const width of [320, 390]) {
+        await p.setViewportSize({ width, height: 800 });
+        await p.goto(BASE + '/library');
+        await p.waitForSelector('.command-bar .tool');
+        const off = await p.evaluate(() => {
+          const bar = document.querySelector('.command-bar').getBoundingClientRect();
+          return [...document.querySelectorAll('.command-bar .tool')]
+            .filter((t) => t.getBoundingClientRect().right > bar.right + 1)
+            .map((t) => t.getAttribute('aria-label') || t.textContent.trim());
+        });
+        hidden.push(...off.map((n) => `${n} at ${width}px`));
+      }
+      await p.setViewportSize({ width: 1280, height: 800 });
+      return hidden.length === 0 || `cut off: ${hidden.join(', ')}`;
     });
     await p.context().close();
   });

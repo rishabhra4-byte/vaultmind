@@ -18,7 +18,7 @@ import {
   IconThumbDown,
   IconThumbUp,
 } from "./icons";
-import { numberCitations, RichText } from "./RichText";
+import { numberCitations, RichText, tidyPartial } from "./RichText";
 
 const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
@@ -319,7 +319,7 @@ export function Bubble({
         {meta.fallback && <p className="fallback-note">{meta.fallback.message}</p>}
         {meta.notice && <p className="fallback-note">{meta.notice}</p>}
         <div>
-          <RichText text={shown} cites={cites} />
+          <RichText text={done ? shown : tidyPartial(shown)} cites={cites} />
           {!done && <span className="caret" aria-hidden />}
         </div>
 
