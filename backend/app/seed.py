@@ -4,8 +4,11 @@ Run directly with `python -m app.seed` or automatically on startup when the data
 empty and VAULTMIND_SEED_DEMO_DATA is true (the default).
 """
 
+import logging
+import os
 import random
 import re
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -44,6 +47,16 @@ DEMO_DRIVE_RULES = [
     {"prefix": "Sales", "team": "Sales", "classification": "internal"},
     {"prefix": "HR", "team": "Human Resources", "classification": "internal"},
 ]
+# How many days ago each sample file last changed. Git keeps no file times, so straight from a
+# checkout every one of them would be "updated just now"; the demo gives them believable ages.
+DEMO_DRIVE_AGES = {
+    "Engineering/On-call Rotation.md": 9,
+    "Sales/Q4 Territory Plan.md": 20,
+    "Engineering/Release Checklist.md": 45,
+    "HR/Interview Scorecard Template.md": 75,
+    "Company/Office Guide.md": 160,
+    "Company/Wi-Fi and Printers.txt": 430,  # over a year: the out-of-date flag, on a synced file
+}
 # The expense policy's previous version, so "what changed" has something to show.
 EXPENSE_V1_EDITS = [
     ("INR 7,000 per night in metro cities", "INR 6,000 per night in metro cities"),
@@ -256,7 +269,7 @@ def seed(db: Session) -> bool:
         drive = Source(
             kind=SourceKind.FOLDER.value,
             name="Shared drive (demo)",
-            config={"path": str(DEMO_DRIVE), "rules": DEMO_DRIVE_RULES},
+            config={"path": str(_demo_drive(now)), "rules": DEMO_DRIVE_RULES},
             owner_team_id=teams["Human Resources"].id,
             classification=Classification.INTERNAL.value,
             permission_mode="rules",
@@ -272,6 +285,32 @@ def seed(db: Session) -> bool:
         drive.status, drive.last_synced_at, drive.stats = "ok", now, report.as_dict()
     db.commit()
     return True
+
+
+def demo_drive_copy() -> Path:
+    """Where the demo keeps its dated copy of the sample files (allowed for syncing in demo mode only)."""
+    from .config import get_settings
+
+    return Path(get_settings().storage_dir) / "demo_drive"
+
+
+def _demo_drive(now: datetime) -> Path:
+    """The sample files, copied into the data directory and given their ages there.
+
+    The copy keeps the repository's own files untouched (and works where they can't be changed);
+    if it can't be made, the demo syncs the originals with whatever times they have.
+    """
+    dest = demo_drive_copy()
+    try:
+        shutil.copytree(DEMO_DRIVE, dest, dirs_exist_ok=True)
+        for name, days in DEMO_DRIVE_AGES.items():
+            if (dest / name).is_file():
+                when = (now - timedelta(days=days)).timestamp()
+                os.utime(dest / name, (when, when))
+    except OSError as exc:
+        logging.getLogger(__name__).warning("Demo drive copy failed (%s); syncing the originals", exc)
+        return DEMO_DRIVE
+    return dest
 
 
 if __name__ == "__main__":

@@ -129,6 +129,70 @@ def test_folder_changes_renames_and_deletions_follow_on_the_next_sync(client, lo
     assert (unchanged.unchanged, unchanged.updated, unchanged.added) == (2, 0, 0)  # nothing re-downloaded
 
 
+def _age(path, days):
+    when = (datetime.now(UTC) - timedelta(days=days)).timestamp()
+    os.utime(path, (when, when))
+
+
+def _days_old(when: datetime) -> float:
+    when = when if when.tzinfo else when.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - when).total_seconds() / 86400
+
+
+def test_synced_documents_are_dated_by_when_the_file_changed(client, login, share):
+    guide = share / "Engineering" / "Guides" / "Deploys.md"
+    _age(guide, 400)
+    _age(share / "Welcome.txt", 3)
+    source_id = _create_folder_source(client, login, share).json()["id"]
+    sync.run_sync(source_id)
+
+    docs = _docs(source_id)
+    assert 399 < _days_old(docs["Deploys"].updated_at) < 401  # not "just now"
+    assert 2 < _days_old(docs["Welcome"].updated_at) < 4
+    # The library and the out-of-date flag go by it.
+    row = next(d for d in client.get("/api/documents", headers=login("priya")).json() if d["title"] == "Deploys")
+    assert 399 < _days_old(datetime.fromisoformat(row["updated_at"])) < 401
+    versions = client.get(f"/api/documents/{docs['Deploys'].id}/versions", headers=login("priya")).json()
+    assert 399 < _days_old(datetime.fromisoformat(versions[0]["created_at"])) < 401
+
+    # An edit in the source dates both the document and the new version by the edit.
+    guide.write_text("# Deploys\n\nWe deploy on weekdays after review.\n\nNo deploys after 4pm.")
+    _age(guide, 2)
+    sync.run_sync(source_id)
+    deploys = _docs(source_id)["Deploys"]
+    assert deploys.version == 2 and 1 < _days_old(deploys.updated_at) < 3
+
+    # A sync that changes nothing in the file, but does change its labels, doesn't make it new.
+    with SessionLocal() as db:
+        source = db.get(Source, source_id)
+        source.config = {**source.config, "rules": [{"prefix": "Engineering", "team": "Sales", "classification": "internal"}]}
+        db.commit()
+    sync.run_sync(source_id)
+    deploys = _docs(source_id)["Deploys"]
+    assert deploys.owner_team.name == "Sales" and 1 < _days_old(deploys.updated_at) < 3
+
+
+def test_documents_synced_before_dates_were_read_are_corrected(client, login, share):
+    _age(share / "Welcome.txt", 200)
+    source_id = _create_folder_source(client, login, share).json()["id"]
+    sync.run_sync(source_id)
+    # As an older version would have left it: dated by the sync.
+    with SessionLocal() as db:
+        doc = db.scalar(select(Document).where(Document.source_id == source_id, Document.title == "Welcome"))
+        doc.updated_at = datetime.now(UTC)
+        db.commit()
+    report = sync.run_sync(source_id)
+    assert report.updated == 0  # nothing re-downloaded
+    assert 199 < _days_old(_docs(source_id)["Welcome"].updated_at) < 201
+
+
+def test_a_source_clock_ahead_of_ours_does_not_make_a_file_newer_than_now(client, login, share):
+    _age(share / "Welcome.txt", -30)  # "changed" a month from now
+    source_id = _create_folder_source(client, login, share).json()["id"]
+    sync.run_sync(source_id)
+    assert -0.01 < _days_old(_docs(source_id)["Welcome"].updated_at) < 0.01
+
+
 def test_folders_outside_the_allowed_locations_are_refused(client, login, share):
     assert _create_folder_source(client, login, share.parent).status_code == 422  # the parent of the root
     assert _create_folder_source(client, login, "/etc").status_code == 422
