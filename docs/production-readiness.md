@@ -1276,3 +1276,12 @@ against the new one and passed:
 
 No console errors, failed requests or sideways scrolling turned up on any page, at either width.
 
+### S3. Firefox, again
+
+CI's first run of this work failed in Firefox with every one of the 761 checks passing: a request
+for "Suggested for you" was still in flight when a check moved on, and Firefox reports that as a
+failed request. It was the same as the keyboard check in section O, in a different place — the
+sessions block signs in and goes straight to Admin. Rather than wait in one more spot, signing in
+now waits for the page it lands on to finish loading, which covers all 16 places that sign in.
+Only Chromium runs locally (761 of 761), so Firefox is verified in CI.
+

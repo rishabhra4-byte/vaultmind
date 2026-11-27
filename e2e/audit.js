@@ -132,6 +132,9 @@ async function signIn(page, name) {
   });
   await page.click(`.persona:has-text("${name}")`);
   await page.waitForSelector('.sidebar');
+  // Let the page sign-in lands on finish its own requests. Callers often go straight somewhere
+  // else, and Firefox reports a request still in flight then ("Suggested for you") as failed.
+  await page.waitForLoadState('networkidle').catch(() => {});
 }
 const toast = (page, text) => page.waitForSelector(`.toast:has-text("${text}")`, { timeout: 6000 });
 async function signOut(page) {
