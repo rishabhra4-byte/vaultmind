@@ -15,6 +15,18 @@ export function numberCitations(text: string, titles: Map<number, string>): Cite
 }
 
 /**
+ * Text cut off part-way through being typed out, without half-written markup: a citation still
+ * being typed ("[D1") is held back until it is whole, stars that may be the start or end of bold
+ * are held back, and a bold or code span left open is closed so it shows as bold or code.
+ */
+export function tidyPartial(text: string): string {
+  let out = text.replace(/\s?\[(?:D\d*(?:\.\d*)?)?$/, "").replace(/\*+$/, "");
+  if ((out.match(/\*\*/g)?.length ?? 0) % 2) out += "**";
+  if ((out.match(/`/g)?.length ?? 0) % 2) out += "`";
+  return out;
+}
+
+/**
  * A small, safe renderer for the assistant's replies: paragraphs, bullet lists, **bold**,
  * `code`, and [D12] / [D12.3] citations rendered as numbered links. It builds React elements rather
  * than injecting HTML, so document text can never run script in the page.

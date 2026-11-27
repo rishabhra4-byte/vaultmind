@@ -1185,6 +1185,25 @@ Removed. A reverse index over the whole vocabulary is memory that grows with the
 one question is the same bar that removed the GloVe neighbours in section M. The finding is
 kept here because the asymmetry is real and worth knowing about.
 
+### R3b. Measured and dropped on 27 November: two more ways to catch a wrong answer
+
+Both aimed at the questions nothing answers that still get an answer (10 of 55), such as "What
+is the notice period for contractors?" answered with the notice period for employees.
+
+**Refuse when the question's most specific word isn't in the answer.** The heaviest word of
+"notice period for contractors" is *contractors*, and the answer sentence doesn't have it. The
+rule caught that one and "Which Kafka version do we run?" — **+2 questions, −11**, four of them
+questions that had always been answered right. The most specific word is often in a heading or a
+neighbouring sentence, or put another way. Removed.
+
+**Say, under an answer, which of the question's words no document mentions.** The decline
+message already does; answers don't. A person could tell at a glance whether "dental" matters
+to the answer, which no rule can (section P3). But "no document mentions it" turned out rarely to
+be true of the words that matter: *Kafka*, *contractors* and *penalty* are all in the library,
+just not in the sentence given. Of 27 wrong answers, a note would have named a word on **3**,
+and appeared on 5 of 183 right ones. Not built: a note that is missing from nearly every wrong
+answer would teach people to trust the ones without it.
+
 ### R4. What would fix it, and why it isn't measured
 
 These questions need meaning, not words: *eat* ↔ *lunch*, *moonlighting* ↔ *outside work*,
@@ -1212,4 +1231,57 @@ cd backend && python -m eval.run --embeddings --out meaning.json
 
 Until that is run, the README's "search by meaning" stays described as optional and unmeasured,
 and 19 of 58 stays the honest number.
+
+## S. Dates from the source, and three faults seen only by using it (27 November 2026)
+
+### S1. Synced documents were dated by the sync, not by the file
+
+Every connector reads when a file last changed in its source — Drive's `modifiedTime`,
+Microsoft's `lastModifiedDateTime`, the folder's file time — and **nothing used it**. A synced
+document's date was the moment VaultMind read it. So for documents from Drive, Microsoft 365 and
+shared folders, the ones most companies would actually connect:
+
+- **The out-of-date flag could not fire.** A file nobody had touched for two years was "updated
+  just now" after every sync.
+- **"The newer one usually applies"**, when two documents disagree, compared sync times.
+- **The library's dates were wrong**: every synced file sorted first under "Date modified" and
+  passed "Updated in the last 7 days".
+
+Now a synced document, and its newest version, are dated by when the file changed in the source.
+A file the source marks as changed but whose content is the same moves the document's date but
+writes no version. A source clock ahead of ours is held at now. Documents synced before this get
+their dates corrected on the next sync, without downloading anything again.
+
+The demo's sample drive had the same problem for a second reason: git keeps no file times, so
+every sample file was as new as the last deploy. The demo now copies them into its data folder
+with believable ages, from 9 days to 14 months, and the oldest — the Wi-Fi guide — is flagged
+when it answers: *"This document may be out of date: last updated 1 year 2 months ago."*
+
+Tests: three new ones in `test_connectors.py` (a file 400 days old is 400 days old in the
+library and in its versions; an edit dates the new version by the edit; a label change on an
+unchanged file doesn't make it new; documents dated by an old sync are corrected; a clock ahead
+of ours is held at now). The benchmark is unchanged question for question.
+
+### S2. Three faults found by going through every page
+
+Each page, at 1280 and 390 pixels wide, as the demo admin, looked at rather than tested. Three
+faults, each now with an audit check that **was run against the old build and failed**, then
+against the new one and passed:
+
+| Fault | Measured before | After |
+|---|---|---|
+| "Verified by Neha Kapoor for Human Resources, Nov 27, 2026" was squeezed into a column beside the answer's buttons — five lines tall on a phone | 36% of the row's width | its own row, above the buttons |
+| On a phone the library's command bar scrolled sideways with no sign of it: **Preview was off screen at 390px**, three tools at 320px | 4 tools cut off at 320 and 390px | two rows: what to do with the selection, then how to see the list |
+| While an answer types out, half-written markup showed: `**24 days` before the bold closed, `[D1` before a citation was whole | 17 frames with raw markup in one answer | none: an open bold is shown bold, a citation waits until it is whole |
+
+No console errors, failed requests or sideways scrolling turned up on any page, at either width.
+
+### S3. Firefox, again
+
+CI's first run of this work failed in Firefox with every one of the 761 checks passing: a request
+for "Suggested for you" was still in flight when a check moved on, and Firefox reports that as a
+failed request. It was the same as the keyboard check in section O, in a different place — the
+sessions block signs in and goes straight to Admin. Rather than wait in one more spot, signing in
+now waits for the page it lands on to finish loading, which covers all 16 places that sign in.
+Only Chromium runs locally (761 of 761), so Firefox is verified in CI.
 

@@ -19,11 +19,11 @@ HIDDEN_PREFIXES = (".", "~$")
 
 
 def allowed_roots() -> list[Path]:
-    from ..seed import DEMO_DRIVE
+    from ..seed import DEMO_DRIVE, demo_drive_copy
 
     roots = [Path(r).expanduser() for r in get_settings().folder_roots]
     if get_settings().demo_enabled:
-        roots.append(DEMO_DRIVE)
+        roots += [DEMO_DRIVE, demo_drive_copy()]  # the sample files, and the demo's dated copy of them
     return [r.resolve() for r in roots if r.exists()]
 
 

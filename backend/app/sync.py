@@ -23,10 +23,11 @@ from pathlib import PurePath
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from . import audit, malware, metrics, sessions
 from .config import get_settings
-from .connectors import ConnectorError, DirectoryGroup, DirectoryUser, Grant, build_connector
+from .connectors import ConnectorError, DirectoryGroup, DirectoryUser, Grant, RemoteFile, build_connector
 from .database import SessionLocal
 from .extract import UnsupportedFile, extract_text
 from .files import media_type_for
@@ -35,6 +36,7 @@ from .models import (
     AclMode,
     Classification,
     Document,
+    DocumentVersion,
     Group,
     GroupMember,
     Position,
@@ -290,6 +292,29 @@ def _title(name: str) -> str:
     return (stem or name).strip()[:255]
 
 
+def _dated_by_source(db: Session, doc: Document, f: RemoteFile, new_version: bool) -> None:
+    """Date the document by when the file last changed in its source, not when VaultMind read it.
+
+    A file nobody has touched for two years is two years old however recently it was synced, and
+    that's what the out-of-date flag, "the newer one usually applies" and the library's dates and
+    filters all go by. Files synced before this was read get their date corrected on the next
+    sync, along with their newest version.
+    """
+    if f.modified is None:
+        return  # the source doesn't say: keep the time it was read
+    when = min(f.modified if f.modified.tzinfo else f.modified.replace(tzinfo=UTC), utcnow())
+    current = doc.updated_at
+    stale = current is None or (current if current.tzinfo else current.replace(tzinfo=UTC)) != when
+    doc.updated_at = when
+    flag_modified(doc, "updated_at")  # sent as it is, so the column's on-update default doesn't fire
+    if new_version or stale:
+        latest = db.scalar(
+            select(DocumentVersion).where(DocumentVersion.document_id == doc.id, DocumentVersion.version == doc.version).limit(1)
+        )
+        if latest is not None:
+            latest.created_at = when
+
+
 def sync_source(db: Session, source: Source) -> SyncReport:
     report = SyncReport()
     connector = build_connector(source)
@@ -326,6 +351,7 @@ def sync_source(db: Session, source: Source) -> SyncReport:
                 _refresh_labels(doc, f, team_id, classification, min_pos, mirror, renamed)
                 if principals is not None and set_principals(doc, principals):
                     report.sharing_changed += 1
+                _dated_by_source(db, doc, f, new_version=False)
                 report.unchanged += 1
                 db.commit()
                 continue
@@ -384,15 +410,21 @@ def sync_source(db: Session, source: Source) -> SyncReport:
                     ai_enabled=source.ai_enabled,
                 ).document
                 report.added += 1
+                new_version = True
             else:
                 if not renamed:
                     filename = doc.filename if PurePath(doc.filename).suffix == PurePath(filename).suffix else filename
-                replace_content(db, doc, data=data, filename=filename, actor=None, text=text, ai_summary=False)
+                # None when only the source's marker moved (a file saved without changes)
+                new_version = (
+                    replace_content(db, doc, data=data, filename=filename, actor=None, text=text, ai_summary=False) is not None
+                )
                 _refresh_labels(doc, f, team_id, classification, min_pos, mirror, renamed)
                 if principals is not None:
                     set_principals(doc, principals)
                 report.updated += 1
             doc.source_version = f.version_key
+            db.flush()  # the new version exists before it is dated
+            _dated_by_source(db, doc, f, new_version=new_version)
             db.commit()
         except (ConnectorError, UnsupportedFile, OSError) as exc:
             db.rollback()
